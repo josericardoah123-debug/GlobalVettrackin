@@ -1,0 +1,98 @@
+# LabTrack v2.0 — Plataforma de Operaciones de Campo
+Sistema de seguimiento de viajes, inventario y clientes para tu empresa.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INICIO RÁPIDO
+
+  Windows:
+    1. Doble clic en START_WINDOWS.bat
+    2. El navegador abre solo en http://localhost:5000
+
+  Mac / Linux:
+    1. Abre Terminal en esta carpeta
+    2. Ejecuta: ./START_MAC_LINUX.sh
+
+  Requiere Python 3 — descargar en: https://www.python.org/downloads/
+  (En Windows: marcar "Add Python to PATH" al instalar)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CUENTAS DE PRUEBA (puedes borrarlas después)
+
+  Administrador:  admin@labtrack.hn    /  admin123
+  Técnico:        carlos@labtrack.hn   /  tech123
+  Técnico:        lucia@labtrack.hn    /  tech123
+  Técnico:        roberto@labtrack.hn  /  tech123
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INSTALAR EN EL CELULAR (Android o iPhone)
+
+  Opción A — Misma red WiFi de oficina:
+    1. Encuentra la IP de tu computadora:
+       Windows: Abre cmd → escribe "ipconfig" → busca "Dirección IPv4"
+       Mac: Ajustes → Red → tu IP (ej: 192.168.1.45)
+    2. En el celular, abre Chrome o Safari
+    3. Entra a: http://TU-IP:5000  (ej: http://192.168.1.45:5000)
+    4. Inicia sesión con tu cuenta de técnico
+
+  Opción B — Instalar como app en el celular (sin App Store):
+    Android (Chrome):
+      1. Abre http://TU-IP:5000 en Chrome
+      2. Toca el menú (3 puntos) → "Agregar a pantalla de inicio"
+      3. Ponle nombre y toca "Agregar"
+      4. Aparece como ícono en tu pantalla como cualquier app
+
+    iPhone (Safari):
+      1. Abre http://TU-IP:5000 en Safari
+      2. Toca el botón Compartir (cuadrado con flecha)
+      3. Toca "Agregar a pantalla de inicio"
+      4. Toca "Agregar"
+
+  Opción C — Acceso desde cualquier lugar (internet):
+    Despliega en Render.com o Railway.app (~$0-10/mes)
+    y todos pueden acceder desde cualquier lugar con internet.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOOGLE MAPS (mapas reales)
+
+  1. Ve a: https://console.cloud.google.com
+  2. Crea un proyecto nuevo
+  3. Activa "Maps JavaScript API"
+  4. Crea una API Key (es gratis hasta ~40,000 cargas/mes)
+  5. En la app: Ajustes → Google Maps API Key → pega la clave → Guardar
+  
+  Los viajes mostrarán el mapa real de Google con la ruta exacta.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LO QUE INCLUYE ESTA VERSIÓN
+
+  Para administradores:
+  ✓ Panel con KPIs, técnicos en vivo, pendientes, inventario
+  ✓ Viajes — lista completa con mapa de cada recorrido
+  ✓ Inventario — equipos, stock, número de serie
+  ✓ Clientes — hospitales, clínicas, laboratorios
+  ✓ Técnicos — ilimitados, con estadísticas
+  ✓ Ajustes — tasa de reembolso, Google Maps, nombre empresa
+
+  Para técnicos (app móvil):
+  ✓ Inicio/cierre de sesión con cuenta propia
+  ✓ Iniciar viaje — GPS rastrea automáticamente
+  ✓ Seleccionar cliente y equipos que lleva
+  ✓ Ver reembolso estimado en tiempo real
+  ✓ Historial de mis viajes y estados
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RESPALDO DE DATOS
+
+  Todos tus datos están en el archivo: labtrack.db
+  Para respaldar: copia ese archivo a un lugar seguro.
+  Para restaurar: reemplaza el archivo y reinicia el servidor.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+El código es 100% tuyo. Sin licencias ni suscripciones.

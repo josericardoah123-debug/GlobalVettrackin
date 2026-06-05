@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="LabTrack"/>
+<meta name="theme-color" content="#0C447C"/>
+<link rel="manifest" href="/manifest.json"/>
+<title>LabTrack</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;font-family:'DM Sans',sans-serif}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#ccc;border-radius:10px}
+input,select,textarea,button{font-family:inherit}
+.map-container{width:100%;height:100%;min-height:300px}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+const API={
+  async req(method,path,body){
+    const r=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Error del servidor");
+    return d;
+  },
+  get(p){return this.req("GET",p)},
+  post(p,b){return this.req("POST",p,b)},
+  patch(p,b){return this.req("PATCH",p,b)},
+};
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const COLORS={
+  purple:{bg:"#EEEDFE",text:"#3C3489",border:"#534AB7"},
+  teal:  {bg:"#E1F5EE",text:"#085041",border:"#0F6E56"},
+  amber: {bg:"#FAEEDA",text:"#854F0B",border:"#BA7517"},
+  blue:  {bg:"#E6F1FB",text:"#185FA5",border:"#378ADD"},
+  coral: {bg:"#FAECE7",text:"#712B13",border:"#D85A30"},
+  green: {bg:"#EAF3DE",text:"#27500A",border:"#639922"},
+};
+const fmt=n=>new Intl.NumberFormat("es-HN",{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
+const uid=()=>Math.random().toString(36).slice(2,8);
+const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+
+// ─── UI HELPERS ───────────────────────────────────────────────────────────────
+function Avatar({initials,color="purple",size=36,radius="50%"}){
+  const c=COLORS[color]||COLORS.purple;
+  return <div style={{width:size,height:size,borderRadius:radius,background:c.bg,color:c.text,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.36,fontWeight:700,flexShrink:0,fontFamily:"'DM Mono',monospace"}}>{(initials||"?").slice(0,2)}</div>;
+}
+function Badge({type,children}){
+  const S={pendiente:{background:"#FAEEDA",color:"#854F0B"},aprobado:{background:"#EAF3DE",color:"#3B6D11"},reembolsado:{background:"#EEEDFE",color:"#3C3489"},info:{background:"#E6F1FB",color:"#185FA5"},danger:{background:"#FCEBEB",color:"#A32D2D"},warning:{background:"#FAEEDA",color:"#854F0B"},success:{background:"#EAF3DE",color:"#3B6D11"},transit:{background:"#E6F1FB",color:"#185FA5"},entrega:{background:"#E1F5EE",color:"#085041"},instalación:{background:"#EEEDFE",color:"#3C3489"},available:{background:"#EAF3DE",color:"#3B6D11"},on_route:{background:"#E6F1FB",color:"#185FA5"}};
+  const s=S[type]||S.info;
+  return <span style={{...s,fontSize:11,padding:"3px 9px",borderRadius:20,fontWeight:600,display:"inline-block",whiteSpace:"nowrap"}}>{children}</span>;
+}
+function Btn({onClick,variant="secondary",children,disabled,small,full}){
+  const S={primary:{background:"var(--accent)",color:"white",border:"none"},secondary:{background:"var(--surface)",color:"var(--text)",border:"1px solid var(--border)"},danger:{background:"#993C1D",color:"white",border:"none"},success:{background:"#0F6E56",color:"white",border:"none"}};
+  const s=S[variant]||S.secondary;
+  return <button onClick={onClick} disabled={disabled} style={{...s,borderRadius:8,padding:small?"6px 12px":"9px 18px",fontSize:small?12:13,fontWeight:600,cursor:disabled?"default":"pointer",opacity:disabled?0.4:1,display:"inline-flex",alignItems:"center",gap:6,width:full?"100%":undefined,justifyContent:full?"center":undefined}}>{children}</button>;
+}
+function Modal({title,onClose,children,wide}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"var(--card)",borderRadius:16,width:"100%",maxWidth:wide?800:520,maxHeight:"92vh",overflow:"auto",border:"1px solid var(--border)",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+        <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:"var(--card)",zIndex:1}}>
+          <span style={{fontWeight:700,fontSize:16,color:"var(--text)"}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:22,padding:4}}>×</button>
+        </div>
+        <div style={{padding:20}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function Field({label,children,span}){
+  return <div style={span?{gridColumn:`span ${span}`}:{}}><label style={{fontSize:12,color:"var(--text2)",display:"block",marginBottom:4}}>{label}</label>{children}</div>;
+}
+function Input({value,onChange,placeholder,type="text",style={}}){
+  return <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,...style}}/>;
+}
+function Select({value,onChange,children}){
+  return <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}>{children}</select>;
+}
+function Spinner(){return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,color:"var(--text2)",fontSize:13,gap:8}}><div style={{width:20,height:20,border:"2px solid var(--border)",borderTopColor:"var(--accent)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Cargando...</div>;}
+
+// ─── GOOGLE MAP COMPONENT ─────────────────────────────────────────────────────
+function GoogleMap({trip,apiKey,height=320}){
+  const ref=useRef(null);
+  const mapRef=useRef(null);
+
+  useEffect(()=>{
+    if(!apiKey||!trip||!ref.current) return;
+
+    const initMap=()=>{
+      if(!window.google||mapRef.current) return;
+      const pts=trip.routePoints||[];
+      const center=pts.length?{lat:pts[Math.floor(pts.length/2)][0],lng:pts[Math.floor(pts.length/2)][1]}:{lat:trip.origin.lat,lng:trip.origin.lng};
+
+      const map=new window.google.maps.Map(ref.current,{
+        center,zoom:10,
+        mapTypeId:"roadmap",
+        styles:[{featureType:"poi",stylers:[{visibility:"off"}]}],
+        mapTypeControl:false,streetViewControl:false,
+      });
+      mapRef.current=map;
+
+      // Draw route
+      if(pts.length>1){
+        const path=pts.map(p=>({lat:p[0],lng:p[1]}));
+        new window.google.maps.Polyline({path,geodesic:true,strokeColor:"#185FA5",strokeOpacity:0.9,strokeWeight:4,map});
+      }
+
+      // Origin marker
+      new window.google.maps.Marker({
+        position:{lat:trip.origin.lat,lng:trip.origin.lng},map,
+        label:{text:"A",color:"white",fontWeight:"bold"},
+        title:trip.origin.label,
+        icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#1D9E75",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}
+      });
+
+      // Destination marker
+      new window.google.maps.Marker({
+        position:{lat:trip.destination.lat,lng:trip.destination.lng},map,
+        label:{text:"B",color:"white",fontWeight:"bold"},
+        title:trip.destination.label,
+        icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}
+      });
+
+      // Stop markers
+      (trip.stops||[]).forEach((s,i)=>{
+        new window.google.maps.Marker({
+          position:{lat:s.lat,lng:s.lng},map,
+          label:{text:"P",color:"white",fontWeight:"bold"},
+          title:s.label,
+          icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#EF9F27",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:12}
+        });
+      });
+
+      // Fit bounds
+      const bounds=new window.google.maps.LatLngBounds();
+      pts.forEach(p=>bounds.extend({lat:p[0],lng:p[1]}));
+      bounds.extend({lat:trip.origin.lat,lng:trip.origin.lng});
+      bounds.extend({lat:trip.destination.lat,lng:trip.destination.lng});
+      map.fitBounds(bounds,{top:40,right:40,bottom:40,left:40});
+    };
+
+    // Load Google Maps script if needed
+    if(window.google&&window.google.maps){
+      initMap();
+    } else if(!document.getElementById("gmaps-script")){
+      const s=document.createElement("script");
+      s.id="gmaps-script";
+      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=__labtrackMapInit`;
+      window.__labtrackMapInit=initMap;
+      document.head.appendChild(s);
+    } else {
+      // Script loading, wait
+      const interval=setInterval(()=>{if(window.google&&window.google.maps){clearInterval(interval);initMap();}},200);
+      return()=>clearInterval(interval);
+    }
+  },[trip,apiKey]);
+
+  if(!apiKey){
+    return <SvgMap trip={trip} height={height}/>;
+  }
+
+  return(
+    <div style={{borderRadius:12,overflow:"hidden",border:"1px solid var(--border)"}}>
+      <div ref={ref} style={{height,width:"100%"}}/>
+      <div style={{padding:"8px 14px",background:"white",borderTop:"1px solid #dde3ea",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,color:"#666"}}>Equipos:</span>
+        {(trip.equipmentIds||[]).map(id=><span key={id} style={{background:"#EEEDFE",color:"#3C3489",fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500}}>{id}</span>)}
+      </div>
+    </div>
+  );
+}
+
+// ─── SVG FALLBACK MAP ─────────────────────────────────────────────────────────
+function SvgMap({trip,height=320}){
+  const W=700,H=height||320,pad=44;
+  const pts=trip.routePoints||[];
+  if(!pts.length) return <div style={{background:"#eef2f7",borderRadius:12,padding:24,textAlign:"center",color:"#888",fontSize:13,height:H,display:"flex",alignItems:"center",justifyContent:"center"}}>Sin datos de ruta</div>;
+  const lats=pts.map(p=>p[0]),lngs=pts.map(p=>p[1]);
+  const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLng=Math.min(...lngs),maxLng=Math.max(...lngs);
+  const proj=([lat,lng])=>[
+    minLng===maxLng?(W/2):pad+((lng-minLng)/(maxLng-minLng))*(W-pad*2),
+    minLat===maxLat?(H/2):(H-pad)-((lat-minLat)/(maxLat-minLat))*(H-pad*2)
+  ];
+  const projected=pts.map(proj);
+  const pathD=projected.map((p,i)=>`${i===0?"M":"L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  const oP=proj([trip.origin.lat,trip.origin.lng]);
+  const dP=proj([trip.destination.lat,trip.destination.lng]);
+  const stopPts=(trip.stops||[]).map(s=>({...s,pt:proj([s.lat,s.lng])}));
+  return(
+    <div style={{background:"#eef2f7",borderRadius:12,overflow:"hidden",border:"1px solid var(--border)"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+        {[0.25,0.5,0.75].map((t,i)=><g key={i}><line x1={pad+t*(W-pad*2)} y1={pad} x2={pad+t*(W-pad*2)} y2={H-pad} stroke="#cdd5df" strokeWidth={1} strokeDasharray="3,3"/><line x1={pad} y1={pad+t*(H-pad*2)} x2={W-pad} y2={pad+t*(H-pad*2)} stroke="#cdd5df" strokeWidth={1} strokeDasharray="3,3"/></g>)}
+        <path d={pathD} fill="none" stroke="#185FA5" strokeWidth={5} strokeOpacity={0.12} strokeLinecap="round" strokeLinejoin="round"/>
+        <path d={pathD} fill="none" stroke="#185FA5" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/>
+        {projected.slice(1,-1).filter((_,i)=>i%2===0).map(([x,y],i)=><circle key={i} cx={x} cy={y} r={3} fill="#185FA5" fillOpacity={0.35}/>)}
+        {stopPts.map((s,i)=><g key={i}><circle cx={s.pt[0]} cy={s.pt[1]} r={11} fill="white" stroke="#EF9F27" strokeWidth={2}/><text x={s.pt[0]} y={s.pt[1]+1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="#854F0B" fontWeight="700">P</text><rect x={s.pt[0]+13} y={s.pt[1]-15} width={Math.min(s.label.length*6,130)} height={19} rx={4} fill="white" stroke="#EF9F27" strokeWidth={1} opacity={0.95}/><text x={s.pt[0]+17} y={s.pt[1]-5} fontSize={10} fill="#854F0B" fontWeight="500">{s.label}</text></g>)}
+        <circle cx={oP[0]} cy={oP[1]} r={15} fill="#1D9E75" opacity={0.15}/><circle cx={oP[0]} cy={oP[1]} r={9} fill="#1D9E75"/>
+        <text x={oP[0]} y={oP[1]+1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="white" fontWeight="700">A</text>
+        <rect x={oP[0]+15} y={oP[1]-13} width={Math.min((trip.origin.label||"").length*5.5,160)} height={19} rx={4} fill="#1D9E75" opacity={0.9}/>
+        <text x={oP[0]+19} y={oP[1]-3} fontSize={10} fill="white" fontWeight="500">{trip.origin.label}</text>
+        <circle cx={dP[0]} cy={dP[1]} r={15} fill="#D85A30" opacity={0.15}/><circle cx={dP[0]} cy={dP[1]} r={9} fill="#D85A30"/>
+        <text x={dP[0]} y={dP[1]+1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="white" fontWeight="700">B</text>
+        <rect x={dP[0]-(Math.min((trip.destination.label||"").length*5.5,180)+15)} y={dP[1]-13} width={Math.min((trip.destination.label||"").length*5.5,180)} height={19} rx={4} fill="#D85A30" opacity={0.9}/>
+        <text x={dP[0]-(Math.min((trip.destination.label||"").length*5.5,180)+11)} y={dP[1]-3} fontSize={10} fill="white" fontWeight="500">{trip.destination.label}</text>
+        <g transform={`translate(${W-130},${H-78})`}><rect x={0} y={0} width={122} height={68} rx={8} fill="white" stroke="#cdd5df" strokeWidth={1} opacity={0.96}/><circle cx={16} cy={17} r={5} fill="#1D9E75"/><text x={26} y={21} fontSize={11} fill="#444">A · Origen</text><circle cx={16} cy={36} r={5} fill="#D85A30"/><text x={26} y={40} fontSize={11} fill="#444">B · Destino</text><circle cx={16} cy={55} r={5} fill="#EF9F27"/><text x={26} y={59} fontSize={11} fill="#444">P · Parada</text></g>
+        <rect x={pad} y={pad-26} width={200} height={20} rx={5} fill="white" stroke="#cdd5df" strokeWidth={1} opacity={0.92}/>
+        <text x={pad+8} y={pad-12} fontSize={11} fill="#185FA5" fontWeight="600">{trip.km} km · {trip.startTime}–{trip.endTime} · {(trip.stops||[]).length} parada{(trip.stops||[]).length!==1?"s":""}</text>
+      </svg>
+      <div style={{padding:"8px 14px",borderTop:"1px solid #dde3ea",display:"flex",gap:6,flexWrap:"wrap",background:"white",alignItems:"center"}}>
+        <span style={{fontSize:11,color:"#666"}}>Equipos:</span>
+        {(trip.equipmentIds||[]).map(id=><span key={id} style={{background:"#EEEDFE",color:"#3C3489",fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500}}>{id}</span>)}
+        {!apiKey&&<span style={{marginLeft:"auto",fontSize:10,color:"#999"}}>Configure Google Maps en Ajustes para mapa real</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── TRIP DETAIL ──────────────────────────────────────────────────────────────
+function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey}){
+  const tech=techs.find(t=>t.id===trip.technicianId);
+  const client=clients.find(c=>c.id===trip.clientId);
+  const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
+  return(
+    <Modal title="Detalle del viaje" onClose={onClose} wide>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+        <div style={{background:"var(--surface)",borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:11,color:"var(--text2)",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Técnico</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Avatar initials={tech?.name?.split(" ").map(w=>w[0]).join("").slice(0,2)} color={tech?.color} size={38}/>
+            <div><div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{tech?.name}</div><div style={{fontSize:12,color:"var(--text2)"}}>{tech?.phone}</div></div>
+          </div>
+        </div>
+        <div style={{background:"var(--surface)",borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:11,color:"var(--text2)",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Cliente</div>
+          <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{client?.name}</div>
+          <div style={{fontSize:12,color:"var(--text2)"}}>{client?.city}, {client?.department}</div>
+          <div style={{fontSize:12,color:"var(--text2)"}}>{client?.contact}</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+        {[{l:"Fecha",v:trip.date},{l:"Distancia",v:`${trip.km} km`},{l:"Reembolso",v:`L. ${fmt(trip.reimbursement)}`},{l:"Tipo",v:trip.tripType}].map(m=>(
+          <div key={m.l} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em"}}>{m.l}</div>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginTop:4}}>{m.v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Mapa del recorrido</div>
+        <GoogleMap trip={trip} apiKey={mapsKey} height={340}/>
+      </div>
+      {(trip.stops||[]).length>0&&(
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Paradas</div>
+          {trip.stops.map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"#FAEEDA",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+              <span style={{background:"#EF9F27",color:"white",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>P</span>
+              <span style={{fontSize:13,color:"#854F0B",fontWeight:500}}>{s.label}</span>
+              {s.time&&<span style={{fontSize:12,color:"#854F0B",marginLeft:"auto"}}>{s.time}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Equipos en este viaje</div>
+        {equips.length===0&&<div style={{fontSize:13,color:"var(--text2)"}}>Sin detalle</div>}
+        {equips.map(eq=>(
+          <div key={eq.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--surface)",borderRadius:8,padding:"10px 14px",marginBottom:6}}>
+            <div><span style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{eq.name} {eq.model}</span><span style={{fontSize:11,color:"var(--text2)",marginLeft:10,fontFamily:"'DM Mono',monospace"}}>S/N: {eq.serial}</span></div>
+            <Badge type={trip.tripType}>{trip.tripType}</Badge>
+          </div>
+        ))}
+      </div>
+      {trip.notes&&<div style={{background:"var(--surface)",borderRadius:8,padding:"12px 14px",marginBottom:14}}><div style={{fontSize:11,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Notas</div><div style={{fontSize:13,color:"var(--text)",lineHeight:1.7}}>{trip.notes}</div></div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:14,borderTop:"1px solid var(--border)"}}>
+        <Badge type={trip.status}>{trip.status}</Badge>
+        <div style={{display:"flex",gap:8}}>
+          {trip.status==="pendiente"&&<Btn variant="success" onClick={()=>onApprove(trip.id)}>✓ Aprobar y reembolsar</Btn>}
+          <Btn onClick={onClose}>Cerrar</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── LOGIN / REGISTER ─────────────────────────────────────────────────────────
+function AuthScreen({onLogin}){
+  const [mode,setMode]=useState("login");
+  const [form,setForm]=useState({name:"",email:"",phone:"",password:"",confirm:""});
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const set=k=>v=>setForm(p=>({...p,[k]:v}));
+
+  const submit=async()=>{
+    setErr(""); setLoading(true);
+    try{
+      if(mode==="register"){
+        if(form.password!==form.confirm){setErr("Las contraseñas no coinciden");setLoading(false);return;}
+        const u=await API.post("/api/auth/register",{name:form.name,email:form.email,phone:form.phone,password:form.password});
+        onLogin(u);
+      } else {
+        const u=await API.post("/api/auth/login",{email:form.email,password:form.password});
+        onLogin(u);
+      }
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0C447C 0%,#185FA5 50%,#1D9E75 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:20,padding:"32px 28px",width:"100%",maxWidth:400,boxShadow:"0 24px 64px rgba(0,0,0,.25)"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:32,fontWeight:800,color:"#185FA5",letterSpacing:"-1px"}}>Lab<span style={{color:"#1a1d23"}}>Track</span></div>
+          <div style={{fontSize:13,color:"#6b7685",marginTop:4}}>Plataforma de operaciones de campo</div>
+        </div>
+
+        <div style={{display:"flex",background:"#f0f2f5",borderRadius:10,padding:4,marginBottom:20}}>
+          {["login","register"].map(m=>(
+            <button key={m} onClick={()=>{setMode(m);setErr("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:8,background:mode===m?"white":"transparent",color:mode===m?"#185FA5":"#6b7685",fontWeight:mode===m?700:400,fontSize:13,cursor:"pointer",boxShadow:mode===m?"0 1px 4px rgba(0,0,0,.1)":"none"}}>
+              {m==="login"?"Iniciar sesión":"Registrarse"}
+            </button>
+          ))}
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {mode==="register"&&(
+            <>
+              <div><label style={{fontSize:12,color:"#6b7685",display:"block",marginBottom:4}}>Nombre completo</label><Input value={form.name} onChange={set("name")} placeholder="Ej: Juan Martínez"/></div>
+              <div><label style={{fontSize:12,color:"#6b7685",display:"block",marginBottom:4}}>Teléfono</label><Input value={form.phone} onChange={set("phone")} placeholder="+504 9xxx-xxxx"/></div>
+            </>
+          )}
+          <div><label style={{fontSize:12,color:"#6b7685",display:"block",marginBottom:4}}>Correo electrónico</label><Input value={form.email} onChange={set("email")} placeholder="correo@empresa.hn" type="email"/></div>
+          <div><label style={{fontSize:12,color:"#6b7685",display:"block",marginBottom:4}}>Contraseña</label><Input value={form.password} onChange={set("password")} placeholder={mode==="register"?"Mínimo 6 caracteres":"••••••••"} type="password"/></div>
+          {mode==="register"&&<div><label style={{fontSize:12,color:"#6b7685",display:"block",marginBottom:4}}>Confirmar contraseña</label><Input value={form.confirm} onChange={set("confirm")} placeholder="Repetir contraseña" type="password"/></div>}
+        </div>
+
+        {err&&<div style={{background:"#FCEBEB",color:"#A32D2D",borderRadius:8,padding:"10px 14px",fontSize:13,marginTop:14,fontWeight:500}}>{err}</div>}
+
+        <button onClick={submit} disabled={loading} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:10,padding:14,fontSize:15,fontWeight:700,cursor:loading?"default":"pointer",opacity:loading?0.7:1,marginTop:20}}>
+          {loading?"Cargando...":mode==="login"?"Entrar":"Crear cuenta"}
+        </button>
+
+        {mode==="login"&&(
+          <div style={{marginTop:16,background:"#f0f2f5",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#6b7685"}}>
+            <div style={{fontWeight:600,marginBottom:4}}>Cuentas de prueba:</div>
+            <div>Admin: admin@labtrack.hn / admin123</div>
+            <div>Técnico: carlos@labtrack.hn / tech123</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({trips,techs,inventory,clients,onViewTrip}){
+  const totalKm=trips.reduce((s,t)=>s+t.km,0);
+  const pending=trips.filter(t=>t.status==="pendiente");
+  const pendingAmt=pending.reduce((s,t)=>s+t.reimbursement,0);
+  const lowStock=inventory.filter(e=>e.stock<=1);
+  const outStock=inventory.filter(e=>e.stock===0);
+
+  return(
+    <div>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:22}}>
+        {[{l:"Km este mes",v:totalKm.toLocaleString(),s:`${trips.length} viajes`},{l:"Reembolso pendiente",v:`L.${fmt(pendingAmt)}`,s:`${pending.length} viajes`},{l:"Activos ahora",v:techs.filter(t=>t.status==="on_route").length,s:"en ruta"},{l:"Entregas",v:trips.filter(t=>t.tripType==="entrega").length,s:"este mes"},{l:"Stock bajo",v:lowStock.length,s:"artículos"}].map(m=>(
+          <div key={m.l} style={{background:"var(--surface)",borderRadius:10,padding:14}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.04em"}}>{m.l}</div>
+            <div style={{fontSize:22,fontWeight:800,color:"var(--text)",lineHeight:1}}>{m.v}</div>
+            <div style={{fontSize:11,color:"var(--text2)",marginTop:4}}>{m.s}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,marginBottom:18}}>
+        {/* Technicians */}
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Técnicos — estado en vivo</div>
+          {techs.filter(u=>u.role==="technician").map(tech=>{
+            const at=trips.find(t=>t.id===tech.currentTripId);
+            const cl=at?clients.find(c=>c.id===at?.clientId):null;
+            const initials=tech.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+            return(
+              <div key={tech.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,display:"flex",gap:12,marginBottom:8}}>
+                <Avatar initials={initials} color={tech.color} size={42}/>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{tech.name}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>
+                    {tech.status==="on_route"?<><span style={{color:"#1D9E75",fontWeight:700}}>● </span>En ruta → {cl?.name}</>:"○ Disponible"}
+                  </div>
+                  {at&&<div style={{marginTop:5,fontSize:12}}><span style={{color:"var(--text2)"}}>{at.km} km · </span><span style={{color:"var(--accent)",cursor:"pointer",textDecoration:"underline"}} onClick={()=>onViewTrip(at)}>Ver mapa</span></div>}
+                </div>
+                <Badge type={tech.status==="on_route"?"on_route":"available"}>{tech.status==="on_route"?"En ruta":"Disponible"}</Badge>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Pending */}
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Pendientes de aprobación</div>
+          {pending.length===0&&<div style={{color:"var(--text2)",fontSize:13,padding:14,background:"var(--surface)",borderRadius:10}}>Todo al día ✓</div>}
+          {pending.slice(0,4).map(trip=>{
+            const tech=techs.find(t=>t.id===trip.technicianId);
+            const cl=clients.find(c=>c.id===trip.clientId);
+            return(
+              <div key={trip.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <div><div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{cl?.name}</div><div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>{tech?.name} · {trip.date}</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:15,color:"var(--accent)"}}>L.{fmt(trip.reimbursement)}</div><div style={{fontSize:11,color:"var(--text2)"}}>{trip.km} km</div></div>
+                </div>
+                <div style={{marginTop:10}}><Btn small onClick={()=>onViewTrip(trip)}>Ver mapa y aprobar</Btn></div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* INVENTORY SECTION */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Inventario — resumen</div>
+          <div style={{display:"flex",gap:8,fontSize:12}}>
+            <span style={{background:"#EAF3DE",color:"#3B6D11",padding:"3px 10px",borderRadius:20,fontWeight:600}}>{inventory.filter(e=>e.stock>1).length} disponibles</span>
+            <span style={{background:"#FAEEDA",color:"#854F0B",padding:"3px 10px",borderRadius:20,fontWeight:600}}>{lowStock.length} stock bajo</span>
+            {outStock.length>0&&<span style={{background:"#FCEBEB",color:"#A32D2D",padding:"3px 10px",borderRadius:20,fontWeight:600}}>{outStock.length} sin stock</span>}
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8}}>
+          {inventory.map(eq=>{
+            const color=eq.stock===0?"#FCEBEB":eq.stock<=1?"#FAEEDA":"#EAF3DE";
+            const textColor=eq.stock===0?"#A32D2D":eq.stock<=1?"#854F0B":"#3B6D11";
+            return(
+              <div key={eq.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{eq.name}</div>
+                  <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{eq.model} · {eq.category}</div>
+                </div>
+                <div style={{background:color,color:textColor,borderRadius:8,padding:"4px 10px",fontWeight:800,fontSize:16,minWidth:36,textAlign:"center"}}>
+                  {eq.stock}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VIAJES ───────────────────────────────────────────────────────────────────
+function Viajes({trips,techs,clients,inventory,onViewTrip}){
+  const [filter,setFilter]=useState("todos");
+  const filtered=filter==="todos"?trips:trips.filter(t=>t.status===filter);
+  const filters=[{k:"todos",l:"Todos"},{k:"pendiente",l:"Pendientes"},{k:"aprobado",l:"Aprobados"},{k:"reembolsado",l:"Reembolsados"}];
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {filters.map(f=>{
+            const count=f.k==="todos"?trips.length:trips.filter(t=>t.status===f.k).length;
+            return <button key={f.k} onClick={()=>setFilter(f.k)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",background:filter===f.k?"var(--accent)":"transparent",color:filter===f.k?"white":"var(--text2)",fontWeight:filter===f.k?700:400}}>{f.l} ({count})</button>;
+          })}
+        </div>
+        <div style={{fontSize:12,color:"var(--text2)",fontWeight:500}}>{filtered.length} viajes · {filtered.reduce((s,t)=>s+t.km,0)} km · L.{fmt(filtered.reduce((s,t)=>s+t.reimbursement,0))}</div>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:700}}>
+          <thead><tr style={{background:"var(--surface)"}}>{["Técnico","Cliente","Equipo","Fecha","Km","Reembolso","Tipo","Estado",""].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:11,color:"var(--text2)",fontWeight:600,borderBottom:"1px solid var(--border)",textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map((trip,i)=>{
+              const tech=techs.find(t=>t.id===trip.technicianId);
+              const cl=clients.find(c=>c.id===trip.clientId);
+              const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
+              const initials=tech?.name?.split(" ").map(w=>w[0]).join("").slice(0,2)||"??";
+              return(
+                <tr key={trip.id} style={{borderBottom:i<filtered.length-1?"1px solid var(--border)":"none",cursor:"pointer"}} onClick={()=>onViewTrip(trip)} onMouseEnter={e=>e.currentTarget.style.background="var(--surface)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                  <td style={{padding:"10px 12px"}}><div style={{display:"flex",alignItems:"center",gap:7}}><Avatar initials={initials} color={tech?.color} size={26}/><span style={{fontWeight:500,color:"var(--text)"}}>{tech?.name?.split(" ")[0]}</span></div></td>
+                  <td style={{padding:"10px 12px",fontWeight:500,color:"var(--text)"}}>{cl?.name}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)",fontSize:12}}>{equips.map(e=>`${e.name} ${e.model}`).join(", ")||"—"}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)",whiteSpace:"nowrap"}}>{trip.date}</td>
+                  <td style={{padding:"10px 12px",fontWeight:700,color:"var(--text)"}}>{trip.km}</td>
+                  <td style={{padding:"10px 12px",fontWeight:700,color:"var(--accent)"}}>L.{fmt(trip.reimbursement)}</td>
+                  <td style={{padding:"10px 12px"}}><Badge type={trip.tripType}>{trip.tripType}</Badge></td>
+                  <td style={{padding:"10px 12px"}}><Badge type={trip.status}>{trip.status}</Badge></td>
+                  <td style={{padding:"10px 12px"}}><span style={{fontSize:12,color:"var(--accent)"}}>Ver mapa →</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── INVENTARIO ───────────────────────────────────────────────────────────────
+function Inventario({inventory,onAdd}){
+  const [show,setShow]=useState(false);
+  const [f,setF]=useState({name:"",model:"",serial:"",category:"",stock:1,unitCost:0});
+  const set=k=>v=>setF(p=>({...p,[k]:v}));
+  const add=async()=>{
+    if(!f.name||!f.model){alert("Nombre y modelo son requeridos");return;}
+    await onAdd({...f,stock:+f.stock,unitCost:+f.unitCost});
+    setF({name:"",model:"",serial:"",category:"",stock:1,unitCost:0});
+    setShow(false);
+  };
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:12,color:"var(--text2)"}}>{inventory.length} artículos · <span style={{color:"#A32D2D"}}>{inventory.filter(e=>e.stock===0).length} sin stock</span> · <span style={{color:"#854F0B"}}>{inventory.filter(e=>e.stock===1).length} stock bajo</span></div>
+        <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar equipo</Btn>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{background:"var(--surface)"}}>{["Equipo","Modelo","N° Serie","Categoría","Stock","Costo unit. (L.)","Estado"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:11,color:"var(--text2)",fontWeight:600,borderBottom:"1px solid var(--border)",textTransform:"uppercase",letterSpacing:"0.04em"}}>{h}</th>)}</tr></thead>
+          <tbody>
+            {inventory.map((eq,i)=>{
+              const st=eq.stock===0?"danger":eq.stock<=1?"warning":"success";
+              const lb=eq.stock===0?"Sin stock":eq.stock<=1?"Stock bajo":"Disponible";
+              return(
+                <tr key={eq.id} style={{borderBottom:i<inventory.length-1?"1px solid var(--border)":"none"}} onMouseEnter={e=>e.currentTarget.style.background="var(--surface)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                  <td style={{padding:"10px 12px",fontWeight:700,color:"var(--text)"}}>{eq.name}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{eq.model}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)",fontFamily:"'DM Mono',monospace",fontSize:11}}>{eq.serial}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{eq.category}</td>
+                  <td style={{padding:"10px 12px",fontWeight:700,color:eq.stock===0?"#A32D2D":eq.stock<=1?"#854F0B":"var(--text)"}}>{eq.stock}</td>
+                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{fmt(eq.unitCost)}</td>
+                  <td style={{padding:"10px 12px"}}><Badge type={st}>{lb}</Badge></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {show&&(
+        <Modal title="Agregar equipo" onClose={()=>setShow(false)}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Nombre del equipo" span={2}><Input value={f.name} onChange={set("name")} placeholder="Ej: Centrífuga"/></Field>
+            <Field label="Modelo"><Input value={f.model} onChange={set("model")} placeholder="Ej: XC-200"/></Field>
+            <Field label="N° Serie"><Input value={f.serial} onChange={set("serial")} placeholder="SN-0001"/></Field>
+            <Field label="Categoría"><Input value={f.category} onChange={set("category")} placeholder="Ej: Diagnóstico"/></Field>
+            <Field label="Stock inicial"><Input value={f.stock} onChange={set("stock")} type="number"/></Field>
+            <Field label="Costo unitario (L.)" span={2}><Input value={f.unitCost} onChange={set("unitCost")} type="number"/></Field>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar equipo</Btn></div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── CLIENTES ─────────────────────────────────────────────────────────────────
+function Clientes({clients,onAdd,trips,inventory}){
+  const [show,setShow]=useState(false);
+  const [sel,setSel]=useState(null);
+  const [f,setF]=useState({name:"",contact:"",phone:"",email:"",city:"",department:"",type:"Clínica"});
+  const set=k=>v=>setF(p=>({...p,[k]:v}));
+  const add=async()=>{
+    if(!f.name){alert("El nombre es requerido");return;}
+    await onAdd(f);
+    setF({name:"",contact:"",phone:"",email:"",city:"",department:"",type:"Clínica"});
+    setShow(false);
+  };
+  const icons={Hospital:"🏥",Laboratorio:"🔬",Clínica:"🏪",Otro:"🏢"};
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:12,color:"var(--text2)"}}>{clients.length} clientes registrados</div>
+        <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar cliente</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+        {clients.map(client=>{
+          const cTrips=trips.filter(t=>t.clientId===client.id);
+          const last=cTrips[0];
+          const lastEq=last?(inventory.find(e=>e.id===(last.equipmentIds||[])[0])):null;
+          return(
+            <div key={client.id} onClick={()=>setSel(client)} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",cursor:"pointer",transition:"border-color .15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"} onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <div style={{width:40,height:40,borderRadius:10,background:"#E6F1FB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{icons[client.type]||"🏢"}</div>
+                <div><div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{client.name}</div><div style={{fontSize:12,color:"var(--text2)"}}>{client.city}, {client.department}</div></div>
+              </div>
+              <div style={{fontSize:12,borderTop:"1px solid var(--border)",paddingTop:8}}>
+                {[["Contacto",client.contact||"—"],["Entregas",cTrips.filter(t=>t.tripType==="entrega").length],["Instalaciones",cTrips.filter(t=>t.tripType==="instalación").length]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{color:"var(--text2)"}}>{l}</span><span style={{color:"var(--text)",fontWeight:500}}>{v}</span></div>
+                ))}
+                {lastEq&&<div style={{marginTop:6,background:"var(--surface)",borderRadius:6,padding:"5px 8px",fontSize:11,color:"var(--text2)"}}>Último: {lastEq.name} {lastEq.model} · {last.date}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {show&&(
+        <Modal title="Agregar cliente" onClose={()=>setShow(false)}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Nombre de la institución" span={2}><Input value={f.name} onChange={set("name")} placeholder="Ej: Hospital Central"/></Field>
+            <Field label="Tipo"><Select value={f.type} onChange={set("type")}><option>Hospital</option><option>Laboratorio</option><option>Clínica</option><option>Otro</option></Select></Field>
+            <Field label="Persona de contacto"><Input value={f.contact} onChange={set("contact")} placeholder="Dr. Juan López"/></Field>
+            <Field label="Teléfono"><Input value={f.phone} onChange={set("phone")} placeholder="+504 2xxx-xxxx"/></Field>
+            <Field label="Correo"><Input value={f.email} onChange={set("email")} placeholder="correo@ejemplo.hn"/></Field>
+            <Field label="Ciudad"><Input value={f.city} onChange={set("city")} placeholder="Tegucigalpa"/></Field>
+            <Field label="Departamento"><Input value={f.department} onChange={set("department")} placeholder="MDC"/></Field>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar cliente</Btn></div>
+        </Modal>
+      )}
+      {sel&&(
+        <Modal title={sel.name} onClose={()=>setSel(null)}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            {[["Tipo",sel.type],["Contacto",sel.contact||"—"],["Teléfono",sel.phone||"—"],["Correo",sel.email||"—"],["Ciudad",sel.city||"—"],["Departamento",sel.department||"—"]].map(([l,v])=>(
+              <div key={l} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:11,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em"}}>{l}</div><div style={{fontWeight:500,fontSize:13,color:"var(--text)",marginTop:3}}>{v}</div></div>
+            ))}
+          </div>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Historial de entregas e instalaciones</div>
+          {trips.filter(t=>t.clientId===sel.id).map(trip=>{
+            const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
+            return <div key={trip.id} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px",marginBottom:6}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{equips.map(e=>`${e.name} ${e.model}`).join(", ")||"—"}</div><div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{trip.date} · {trip.km} km</div></div><Badge type={trip.status}>{trip.status}</Badge></div></div>;
+          })}
+          {trips.filter(t=>t.clientId===sel.id).length===0&&<div style={{color:"var(--text2)",fontSize:13}}>Sin viajes aún</div>}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── TECNICOS ────────────────────────────────────────────────────────────────
+function Tecnicos({techs,onAdd,trips}){
+  const [show,setShow]=useState(false);
+  const [f,setF]=useState({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician"});
+  const colors=["purple","teal","amber","blue","coral","green"];
+  const set=k=>v=>setF(p=>({...p,[k]:v}));
+  const add=async()=>{
+    if(!f.name||!f.email){alert("Nombre y correo son requeridos");return;}
+    await onAdd(f);
+    setF({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician"});
+    setShow(false);
+  };
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:12,color:"var(--text2)"}}>{techs.length} usuarios · ilimitados</div>
+        <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar técnico</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12}}>
+        {techs.map(tech=>{
+          const tTrips=trips.filter(t=>t.technicianId===tech.id);
+          const initials=tech.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+          return(
+            <div key={tech.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                <Avatar initials={initials} color={tech.color} size={50}/>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{tech.name}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:1}}>{tech.email}</div>
+                  <div style={{fontSize:12,color:"var(--text2)"}}>{tech.phone}</div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+                  <Badge type={tech.status==="on_route"?"on_route":"available"}>{tech.status==="on_route"?"En ruta":"Disponible"}</Badge>
+                  <span style={{fontSize:10,background:"var(--surface)",color:"var(--text2)",padding:"2px 7px",borderRadius:10}}>{tech.role==="admin"?"Admin":"Técnico"}</span>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,borderTop:"1px solid var(--border)",paddingTop:12}}>
+                {[["Viajes",tTrips.length],["Km",tTrips.reduce((s,t)=>s+t.km,0)],["Pendiente",`L.${fmt(tTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:19,fontWeight:800,color:l==="Pendiente"?"var(--accent)":"var(--text)"}}>{v}</div><div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em",marginTop:2}}>{l}</div></div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {show&&(
+        <Modal title="Agregar técnico" onClose={()=>setShow(false)}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Nombre completo" span={2}><Input value={f.name} onChange={set("name")} placeholder="Ej: Juan Martínez"/></Field>
+            <Field label="Correo electrónico"><Input value={f.email} onChange={set("email")} placeholder="correo@empresa.hn" type="email"/></Field>
+            <Field label="Teléfono"><Input value={f.phone} onChange={set("phone")} placeholder="+504 9xxx-xxxx"/></Field>
+            <Field label="Contraseña inicial"><Input value={f.password} onChange={set("password")} type="password"/></Field>
+            <Field label="Rol"><Select value={f.role} onChange={set("role")}><option value="technician">Técnico</option><option value="admin">Administrador</option></Select></Field>
+            <Field label="Color de avatar" span={2}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+                {colors.map(c=><div key={c} onClick={()=>set("color")(c)} style={{width:34,height:34,borderRadius:"50%",background:COLORS[c].bg,border:`3px solid ${f.color===c?COLORS[c].border:"transparent"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:16,height:16,borderRadius:"50%",background:COLORS[c].border}}/></div>)}
+              </div>
+            </Field>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar técnico</Btn></div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── APP EMPLEADO (MÓVIL) ─────────────────────────────────────────────────────
+function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
+  const [tab,setTab]=useState("viaje");
+  const [active,setActive]=useState(false);
+  const [km,setKm]=useState(0);
+  const [elapsed,setElapsed]=useState(0);
+  const [clientId,setClientId]=useState("");
+  const [equips,setEquips]=useState([]);
+  const [type,setType]=useState("entrega");
+  const [notes,setNotes]=useState("");
+  const [gpsPts,setGpsPts]=useState([]);
+  const [livePos,setLivePos]=useState(null);
+  const interval=useRef(null);
+  const myTrips=trips.filter(t=>t.technicianId===user.id);
+  const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+
+  useEffect(()=>{
+    if(active){
+      // Real GPS
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(pos=>{
+          const pt=[pos.coords.latitude,pos.coords.longitude];
+          setGpsPts([pt]);
+          setLivePos(pt);
+        });
+      }
+      interval.current=setInterval(()=>{
+        setElapsed(e=>e+1);
+        setKm(k=>+(k+(Math.random()*0.06+0.02)).toFixed(2));
+        // Try real GPS update
+        if(navigator.geolocation){
+          navigator.geolocation.getCurrentPosition(pos=>{
+            const pt=[pos.coords.latitude,pos.coords.longitude];
+            setGpsPts(p=>[...p,pt]);
+            setLivePos(pt);
+          });
+        } else {
+          setGpsPts(p=>[...p,[15.5044+(Math.random()*0.002-0.001)*(p.length+1),-88.0251+(Math.random()*0.003+0.001)*(p.length+1)]]);
+        }
+      },8000);
+    } else clearInterval(interval.current);
+    return()=>clearInterval(interval.current);
+  },[active]);
+
+  const start=()=>{
+    if(!clientId){alert("Selecciona un cliente primero.");return;}
+    if(!equips.length){alert("Selecciona al menos un equipo.");return;}
+    setActive(true);setKm(0);setElapsed(0);
+    setGpsPts([[15.5044,-88.0251]]);
+  };
+
+  const end=async()=>{
+    setActive(false);
+    const now=new Date();
+    const startD=new Date(now-elapsed*8000);
+    const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+    const client=clients.find(c=>c.id===clientId);
+    const finalKm=Math.max(Math.round(km),1);
+    const lastPt=gpsPts[gpsPts.length-1]||[15.5044,-88.0251];
+    await onSaveTrip({
+      technicianId:user.id,clientId,
+      date:now.toISOString().slice(0,10),tripType:type,equipmentIds:equips,
+      origin:{lat:gpsPts[0]?.[0]||15.5044,lng:gpsPts[0]?.[1]||(-88.0251),label:"Punto de origen"},
+      destination:{lat:lastPt[0],lng:lastPt[1],label:`${client?.name}, ${client?.city}`},
+      stops:[],routePoints:gpsPts,
+      startTime:p2(startD),endTime:p2(now),
+      km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
+      notes:notes||"Viaje completado desde la app móvil."
+    });
+    setKm(0);setClientId("");setEquips([]);setNotes("");setGpsPts([]);
+    setTab("historial");
+  };
+
+  const toggle=id=>setEquips(p=>p.includes(id)?p.filter(e=>e!==id):[...p,id]);
+  const mins=Math.floor(elapsed*8/60),secs=Math.floor(elapsed*8%60);
+  const reimb=+(km*rate).toFixed(2);
+
+  return(
+    <div style={{maxWidth:390,margin:"0 auto"}}>
+      <div style={{background:"var(--surface)",borderRadius:28,padding:8,border:"1px solid var(--border)"}}>
+        <div style={{background:"var(--card)",borderRadius:22,overflow:"hidden",minHeight:620}}>
+          <div style={{background:"#0C447C",padding:18}}>
+            <div style={{fontSize:18,fontWeight:800,color:"white",letterSpacing:"-0.5px"}}>LabTrack</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{user.name} · Técnico</div>
+          </div>
+          <div style={{padding:16}}>
+            {tab==="viaje"&&(
+              <div>
+                <div style={{background:active?"#E1F5EE":"var(--surface)",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:active?"#1D9E75":"#aaa",flexShrink:0,boxShadow:active?"0 0 0 3px rgba(29,158,117,.25)":"none"}}/>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:active?"#085041":"var(--text2)"}}>{active?"GPS activo — rastreando":"GPS listo"}</div>
+                    <div style={{fontSize:11,color:active?"#0F6E56":"var(--text2)"}}>{active?`${mins}m ${secs}s · ${gpsPts.length} puntos registrados`:"Se activa automáticamente al iniciar"}</div>
+                  </div>
+                </div>
+                {!active&&<>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Cliente / destino</label>
+                    <Select value={clientId} onChange={setClientId}><option value="">Seleccionar cliente...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}</Select>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Tipo de visita</label>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                      {["entrega","instalación"].map(t=><button key={t} onClick={()=>setType(t)} style={{padding:9,borderRadius:8,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",fontWeight:type===t?700:400,background:type===t?"#EEEDFE":"var(--surface)",color:type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Equipos a llevar</label>
+                    <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:140,overflowY:"auto"}}>
+                      {inventory.filter(e=>e.stock>0).map(eq=>(
+                        <div key={eq.id} onClick={()=>toggle(eq.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:equips.includes(eq.id)?"#E6F1FB":"var(--surface)",border:`1px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`}}>
+                          <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`,background:equips.includes(eq.id)?"#185FA5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{equips.includes(eq.id)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}</div>
+                          <div><div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{eq.name} {eq.model}</div><div style={{fontSize:10,color:"var(--text2)"}}>S/N: {eq.serial} · stock: {eq.stock}</div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Notas</label>
+                    <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} placeholder="Observaciones..." style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,resize:"none"}}/>
+                  </div>
+                </>}
+                <div style={{textAlign:"center",padding:"14px 0"}}>
+                  <div style={{fontSize:50,fontWeight:800,color:"var(--text)",lineHeight:1,fontFamily:"'DM Mono',monospace"}}>{km.toFixed(1)}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:4}}>km recorridos · GPS automático</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                  <button onClick={start} disabled={active} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:13,fontSize:13,fontWeight:700,cursor:active?"default":"pointer",opacity:active?0.35:1}}>▶ Iniciar viaje</button>
+                  <button onClick={end} disabled={!active} style={{background:"#993C1D",color:"white",border:"none",borderRadius:10,padding:13,fontSize:13,fontWeight:700,cursor:!active?"default":"pointer",opacity:!active?0.35:1}}>■ Finalizar viaje</button>
+                </div>
+                <div style={{background:"#EEEDFE",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:22,fontWeight:800,color:"#26215C",marginTop:2,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
+                  <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
+                </div>
+              </div>
+            )}
+            {tab==="historial"&&(
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12}}>Mis viajes ({myTrips.length})</div>
+                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,padding:"20px 0",textAlign:"center"}}>Sin viajes aún</div>}
+                {myTrips.map(t=>{
+                  const cl=clients.find(c=>c.id===t.clientId);
+                  return <div key={t.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div><div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{t.date} · {t.km} km · {t.tripType}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:13,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div><div style={{marginTop:3}}><Badge type={t.status}>{t.status}</Badge></div></div></div></div>;
+                })}
+              </div>
+            )}
+            {tab==="perfil"&&(
+              <div style={{padding:"8px 0"}}>
+                <div style={{textAlign:"center",padding:"16px 0 20px"}}>
+                  <Avatar initials={initials} color={user.color} size={68}/>
+                  <div style={{fontWeight:800,fontSize:17,color:"var(--text)",marginTop:12}}>{user.name}</div>
+                  <div style={{fontSize:13,color:"var(--text2)",marginTop:4}}>{user.email}</div>
+                  <div style={{fontSize:12,background:"#E6F1FB",color:"#185FA5",display:"inline-block",padding:"3px 12px",borderRadius:20,marginTop:6,fontWeight:600}}>{user.role==="admin"?"Administrador":"Técnico"}</div>
+                </div>
+                <div style={{background:"var(--surface)",borderRadius:12,padding:14}}>
+                  {[["Total viajes",myTrips.length],["Total km",`${myTrips.reduce((s,t)=>s+t.km,0)} km`],["Pendiente",`L.${fmt(myTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0))}`],["Reembolsado",`L.${fmt(myTrips.filter(t=>t.status==="reembolsado").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v],i,a)=>(
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<a.length-1?"1px solid var(--border)":"none",fontSize:13}}><span style={{color:"var(--text2)"}}>{l}</span><span style={{fontWeight:700,color:"var(--text)"}}>{v}</span></div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
+            {[{k:"viaje",i:"🚗",l:"Viaje"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
+              <button key={t.k} onClick={()=>setTab(t.k)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:tab===t.k?"#185FA5":"var(--text2)"}}>
+                <span style={{fontSize:22}}>{t.i}</span>
+                <span style={{fontSize:10,fontWeight:tab===t.k?700:400}}>{t.l}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AJUSTES ──────────────────────────────────────────────────────────────────
+function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompany,dark,setDark}){
+  const [rateVal,setRateVal]=useState(rate);
+  const [keyVal,setKeyVal]=useState(mapsKey||"");
+  const [nameVal,setNameVal]=useState(companyName||"");
+  useEffect(()=>{setRateVal(rate);},[rate]);
+  return(
+    <div style={{maxWidth:560,display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Nombre de la empresa</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={nameVal} onChange={e=>setNameVal(e.target.value)} style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+          <Btn variant="primary" onClick={()=>onSaveCompany(nameVal)}>Guardar</Btn>
+        </div>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Tasa de reembolso por km</div>
+        <div style={{fontSize:13,color:"var(--text2)",marginBottom:14}}>Se aplica a todos los viajes nuevos</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:15,color:"var(--text2)",fontWeight:600}}>L.</span>
+          <input type="number" value={rateVal} step="0.5" min="1" onChange={e=>setRateVal(+e.target.value)} style={{width:110,padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:16,fontWeight:700,fontFamily:"'DM Mono',monospace"}}/>
+          <span style={{fontSize:14,color:"var(--text2)"}}>por km</span>
+          <div style={{marginLeft:"auto"}}><Btn variant="primary" onClick={()=>onSaveRate(rateVal)}>Guardar tasa</Btn></div>
+        </div>
+        <div style={{marginTop:10,fontSize:12,color:"var(--text2)"}}>Ejemplo: 100 km → <strong>L.{fmt(rateVal*100)}</strong></div>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Google Maps API Key</div>
+        <div style={{fontSize:13,color:"var(--text2)",marginBottom:10,lineHeight:1.6}}>
+          Ingresa tu API Key para mostrar mapas reales en los viajes.<br/>
+          Obtenla gratis en: <a href="https://console.cloud.google.com" target="_blank" style={{color:"var(--accent)"}}>console.cloud.google.com</a>
+          <br/><span style={{fontSize:12,color:"#3B6D11"}}>✓ El nivel gratuito cubre +40,000 cargas de mapa/mes</span>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={keyVal} onChange={e=>setKeyVal(e.target.value)} placeholder="AIzaSy..." type="password" style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,fontFamily:"monospace"}}/>
+          <Btn variant="primary" onClick={()=>onSaveMapsKey(keyVal)}>Guardar</Btn>
+        </div>
+        {!mapsKey&&<div style={{marginTop:8,fontSize:12,color:"#854F0B",background:"#FAEEDA",borderRadius:6,padding:"6px 10px"}}>Sin API Key: se muestra mapa SVG básico en los viajes</div>}
+        {mapsKey&&<div style={{marginTop:8,fontSize:12,color:"#3B6D11",background:"#EAF3DE",borderRadius:6,padding:"6px 10px"}}>✓ Google Maps activo</div>}
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:12}}>Apariencia</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:13,color:"var(--text2)"}}>Modo oscuro</span>
+          <button onClick={()=>setDark(d=>!d)} style={{background:dark?"#185FA5":"var(--surface)",border:"1px solid var(--border)",borderRadius:20,padding:"6px 18px",fontSize:13,cursor:"pointer",color:dark?"white":"var(--text)",fontWeight:600}}>{dark?"● Activado":"○ Desactivado"}</button>
+        </div>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:8}}>Acerca de LabTrack</div>
+        <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8}}>Versión 2.0 · Plataforma de operaciones de campo<br/>Diseñado para empresas de equipos de laboratorio en Honduras 🇭🇳<br/><br/><span style={{color:"#1D9E75",fontWeight:600}}>✓ Conectado a base de datos en vivo</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(()=>LS.get("lt_user",null));
+  const [dark,setDark]=useState(false);
+  const [page,setPage]=useState("dashboard");
+  const [techs,setTechs]=useState([]);
+  const [inventory,setInventory]=useState([]);
+  const [clients,setClients]=useState([]);
+  const [trips,setTrips]=useState([]);
+  const [rate,setRate]=useState(5.0);
+  const [mapsKey,setMapsKey]=useState("");
+  const [companyName,setCompanyName]=useState("LabTrack");
+  const [viewTrip,setViewTrip]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [toast,setToast]=useState(null);
+  const [sideOpen,setSideOpen]=useState(window.innerWidth>768);
+
+  const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3200);};
+
+  const loadAll=async()=>{
+    try{
+      const [t,i,c,tr,s]=await Promise.all([API.get("/api/technicians"),API.get("/api/inventory"),API.get("/api/clients"),API.get("/api/trips"),API.get("/api/settings")]);
+      setTechs(t);setInventory(i);setClients(c);setTrips(tr);
+      if(s.rate_per_km) setRate(parseFloat(s.rate_per_km));
+      if(s.maps_api_key) setMapsKey(s.maps_api_key);
+      if(s.company_name) setCompanyName(s.company_name);
+    }catch(e){showToast("No se pudo conectar al servidor","error");}
+    setLoading(false);
+  };
+
+  useEffect(()=>{if(user) loadAll();},[user]);
+
+  const handleLogin=u=>{LS.set("lt_user",u);setUser(u);};
+  const handleLogout=()=>{LS.set("lt_user",null);setUser(null);setPage("dashboard");};
+
+  const approveTrip=async(id)=>{
+    await API.patch(`/api/trips/${id}`,{status:"aprobado"});
+    setTrips(p=>p.map(t=>t.id===id?{...t,status:"aprobado"}:t));
+    setViewTrip(null);showToast("Viaje aprobado ✓");
+  };
+  const saveRate=async v=>{await API.post("/api/settings",{rate_per_km:v});setRate(v);showToast("Tasa guardada ✓");};
+  const saveMapsKey=async v=>{await API.post("/api/settings",{maps_api_key:v});setMapsKey(v);showToast("API Key guardada ✓");};
+  const saveCompany=async v=>{await API.post("/api/settings",{company_name:v});setCompanyName(v);showToast("Nombre guardado ✓");};
+  const addTech=async d=>{const t=await API.post("/api/technicians",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
+  const addInventory=async d=>{const eq=await API.post("/api/inventory",d);setInventory(p=>[...p,eq]);showToast("Equipo agregado ✓");};
+  const addClient=async d=>{const c=await API.post("/api/clients",d);setClients(p=>[...p,c]);showToast("Cliente agregado ✓");};
+  const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");};
+
+  if(!user) return <AuthScreen onLogin={handleLogin}/>;
+
+  const isMobile=window.innerWidth<=768;
+  const isAdmin=user.role==="admin";
+
+  const theme={"--bg":dark?"#0f1117":"#f4f6f9","--card":dark?"#181b22":"#ffffff","--surface":dark?"#1f2330":"#eef1f5","--border":dark?"#2a2f3e":"#dde1e8","--text":dark?"#e4e7ef":"#14181f","--text2":dark?"#7c8698":"#6b7685","--accent":"#185FA5"};
+
+  const adminNav=[
+    {id:"dashboard",l:"Panel",i:"📊"},
+    {id:"viajes",l:"Viajes",i:"🚗"},
+    {id:"inventario",l:"Inventario",i:"📦"},
+    {id:"clientes",l:"Clientes",i:"🏥"},
+    {id:"tecnicos",l:"Técnicos",i:"👷"},
+    {id:"ajustes",l:"Ajustes",i:"⚙️"},
+  ];
+  const techNav=[
+    {id:"app",l:"Mi App",i:"📱"},
+    {id:"viajes",l:"Mis Viajes",i:"🚗"},
+  ];
+  const nav=isAdmin?adminNav:techNav;
+  const pendingCount=trips.filter(t=>t.status==="pendiente").length;
+  const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+
+  return(
+    <div style={{...theme,minHeight:"100vh",background:"var(--bg)",color:"var(--text)",display:"flex"}}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      {/* Sidebar */}
+      <div style={{width:sideOpen?215:0,minWidth:sideOpen?215:0,height:"100vh",position:"sticky",top:0,background:"var(--card)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",overflow:"hidden",transition:"all .2s",zIndex:100}}>
+        <div style={{padding:"18px 16px 12px",borderBottom:"1px solid var(--border)"}}>
+          <div style={{fontSize:21,fontWeight:800,color:"var(--accent)",letterSpacing:"-0.5px"}}>Lab<span style={{color:"var(--text)"}}>{companyName.replace("Lab","")}</span></div>
+          <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>Operaciones de campo</div>
+          <div style={{marginTop:8,display:"inline-flex",alignItems:"center",gap:5,background:"#E1F5EE",borderRadius:20,padding:"3px 10px"}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:"#1D9E75"}}/>
+            <span style={{fontSize:10,color:"#085041",fontWeight:600}}>Base de datos en vivo</span>
+          </div>
+        </div>
+        <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
+          {nav.map(n=>(
+            <button key={n.id} onClick={()=>{setPage(n.id);if(isMobile)setSideOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,border:"none",background:page===n.id?"#E6F1FB":"transparent",color:page===n.id?"#185FA5":"var(--text2)",fontWeight:page===n.id?700:400,fontSize:13,cursor:"pointer",marginBottom:2,textAlign:"left",fontFamily:"inherit"}}>
+              <span style={{fontSize:16}}>{n.i}</span>{n.l}
+              {n.id==="viajes"&&pendingCount>0&&isAdmin&&<span style={{marginLeft:"auto",background:"#993C1D",color:"white",borderRadius:20,fontSize:10,padding:"1px 7px",fontWeight:700}}>{pendingCount}</span>}
+            </button>
+          ))}
+        </nav>
+        <div style={{padding:"12px 14px",borderTop:"1px solid var(--border)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <Avatar initials={initials} color={user.color||"blue"} size={30}/>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user.name}</div><div style={{fontSize:10,color:"var(--text2)"}}>{user.role==="admin"?"Administrador":"Técnico"}</div></div>
+          </div>
+          <button onClick={handleLogout} style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text2)",fontSize:12,cursor:"pointer"}}>Cerrar sesión</button>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+        <div style={{padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--card)",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:50}}>
+          <button onClick={()=>setSideOpen(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:20,padding:4,borderRadius:6,flexShrink:0}}>☰</button>
+          <h1 style={{fontSize:17,fontWeight:800,color:"var(--text)",margin:0,flex:1}}>{nav.find(n=>n.id===page)?.i} {nav.find(n=>n.id===page)?.l}</h1>
+          <button onClick={loadAll} style={{background:"none",border:"1px solid var(--border)",cursor:"pointer",color:"var(--text2)",fontSize:12,padding:"6px 12px",borderRadius:8,whiteSpace:"nowrap"}}>↻ Actualizar</button>
+          {isAdmin&&<div style={{fontSize:12,color:"var(--text2)",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:"#1D9E75",display:"inline-block"}}/>
+            {techs.filter(t=>t.status==="on_route").length} en ruta
+          </div>}
+        </div>
+        <div style={{flex:1,padding:"22px 24px",overflowY:"auto"}}>
+          {loading?<Spinner/>:<>
+            {page==="dashboard" &&isAdmin&&<Dashboard trips={trips} techs={techs} inventory={inventory} clients={clients} onViewTrip={setViewTrip}/>}
+            {page==="viajes"    &&<Viajes trips={isAdmin?trips:trips.filter(t=>t.technicianId===user.id)} techs={techs} clients={clients} inventory={inventory} onViewTrip={setViewTrip}/>}
+            {page==="inventario"&&isAdmin&&<Inventario inventory={inventory} onAdd={addInventory}/>}
+            {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
+            {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
+            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey}/>}
+            {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark}/>}
+          </>}
+        </div>
+      </div>
+
+      {viewTrip&&<TripDetail trip={viewTrip} techs={techs} clients={clients} inventory={inventory} onClose={()=>setViewTrip(null)} onApprove={approveTrip} mapsKey={mapsKey}/>}
+      {toast&&<div style={{position:"fixed",bottom:24,right:24,background:toast.type==="error"?"#A32D2D":"#0F6E56",color:"white",padding:"12px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.2)"}}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
