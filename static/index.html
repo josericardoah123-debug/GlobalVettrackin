@@ -868,7 +868,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const mins=Math.floor(elapsed/60),secs=elapsed%60;
   const reimb=+(km*rate).toFixed(2);
   const hora=new Date().getHours();
-  const saludo=hora<12?"¡Buenos días":"hora<18?"¡Buenas tardes":"¡Buenas noches";
+  const saludo=hora<12?"¡Buenos días":hora<18?"¡Buenas tardes":"¡Buenas noches";
 
   return(
     <div style={{maxWidth:400,margin:"0 auto"}}>
@@ -887,7 +887,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
               <div>
                 {/* Saludo */}
                 <div style={{background:"linear-gradient(135deg,#E6F1FB,#EEEDFE)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-                  <div style={{fontSize:15,fontWeight:700,color:"#0C447C"}}>{hora<12?"¡Buenos días":"hora<18?"¡Buenas tardes":"¡Buenas noches"}, {user.name.split(" ")[0]}! 👋</div>
+                  <div style={{fontSize:15,fontWeight:700,color:"#0C447C"}}>{hora<12?"¡Buenos días":hora<18?"¡Buenas tardes":"¡Buenas noches"}, {user.name.split(" ")[0]}! 👋</div>
                   <div style={{fontSize:12,color:"#185FA5",marginTop:3}}>Listo para tu próximo viaje</div>
                 </div>
 
