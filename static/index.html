@@ -754,7 +754,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
             const lastPt=prev[prev.length-1];
             const dist=calcDist(lastPt,newPt);
             // Only add point if moved more than 10 meters (avoids GPS drift noise)
-            if(dist>0.01){
+            if(dist>0.05){
               setKm(k=>+(k+dist).toFixed(2));
               return [...prev,newPt];
             }
