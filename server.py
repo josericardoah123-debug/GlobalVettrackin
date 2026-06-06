@@ -55,6 +55,9 @@ def init_db():
             city TEXT DEFAULT '',
             department TEXT DEFAULT '',
             type TEXT DEFAULT 'Clínica',
+            lat REAL DEFAULT NULL,
+            lng REAL DEFAULT NULL,
+            address TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS trips (
@@ -114,13 +117,13 @@ def seed_data(db):
     db.executemany("INSERT INTO inventory (id,name,model,serial,category,stock,unit_cost) VALUES (?,?,?,?,?,?,?)", inventory)
 
     clients = [
-        ("c1","Clínica del Norte","Dr. Ana Flores","+504 2658-1234","contacto@clinicadelnorte.hn","Choloma","Cortés","Clínica"),
-        ("c2","Lab Central HN","Ing. Marco Ríos","+504 2237-5678","info@labcentralhn.hn","Tegucigalpa","MDC","Laboratorio"),
-        ("c3","Hospital del Valle","Dra. Sandra Mejía","+504 2669-9012","hospital@hvalle.hn","La Lima","Cortés","Hospital"),
-        ("c4","Lab San Isidro","Lic. Pedro Cruz","+504 2647-3456","lsi@labsanisidro.hn","El Progreso","Yoro","Laboratorio"),
-        ("c5","Clínica Porteña","Dr. Ramón Suazo","+504 2665-7890","clinica@portena.hn","Puerto Cortés","Cortés","Clínica"),
+        ("c1","Clínica del Norte","Dr. Ana Flores","+504 2658-1234","contacto@clinicadelnorte.hn","Choloma","Cortés","Clínica",15.6234,-87.9627,"Choloma, Cortés"),
+        ("c2","Lab Central HN","Ing. Marco Ríos","+504 2237-5678","info@labcentralhn.hn","Tegucigalpa","MDC","Laboratorio",14.0818,-87.2068,"Tegucigalpa, MDC"),
+        ("c3","Hospital del Valle","Dra. Sandra Mejía","+504 2669-9012","hospital@hvalle.hn","La Lima","Cortés","Hospital",15.4278,-87.9178,"La Lima, Cortés"),
+        ("c4","Lab San Isidro","Lic. Pedro Cruz","+504 2647-3456","lsi@labsanisidro.hn","El Progreso","Yoro","Laboratorio",15.4397,-87.8325,"El Progreso, Yoro"),
+        ("c5","Clínica Porteña","Dr. Ramón Suazo","+504 2665-7890","clinica@portena.hn","Puerto Cortés","Cortés","Clínica",15.8522,-87.9364,"Puerto Cortés, Cortés"),
     ]
-    db.executemany("INSERT INTO clients (id,name,contact,phone,email,city,department,type) VALUES (?,?,?,?,?,?,?,?)", clients)
+    db.executemany("INSERT INTO clients (id,name,contact,phone,email,city,department,type,lat,lng,address) VALUES (?,?,?,?,?,?,?,?,?,?,?)", clients)
 
     trips = [
         {"id":"trip1","tid":"t1","cid":"c1","date":"2026-06-04","status":"pendiente","type":"instalación","eq":["eq1","eq5"],
@@ -323,9 +326,10 @@ def add_client():
     d = request.json
     cid = "c"+uid()
     with get_db() as db:
-        db.execute("INSERT INTO clients (id,name,contact,phone,email,city,department,type) VALUES (?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO clients (id,name,contact,phone,email,city,department,type,lat,lng,address) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                    (cid,d["name"],d.get("contact",""),d.get("phone",""),d.get("email",""),
-                    d.get("city",""),d.get("department",""),d.get("type","Clínica")))
+                    d.get("city",""),d.get("department",""),d.get("type","Clínica"),
+                    d.get("lat"),d.get("lng"),d.get("address","")))
         db.commit()
         return jsonify(row2dict(db.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()))
 

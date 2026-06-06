@@ -92,6 +92,55 @@ function Select({value,onChange,children}){
 }
 function Spinner(){return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,color:"var(--text2)",fontSize:13,gap:8}}><div style={{width:20,height:20,border:"2px solid var(--border)",borderTopColor:"var(--accent)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Cargando...</div>;}
 
+
+// ─── PLACES SEARCH (Google Places Autocomplete) ──────────────────────────────
+function PlacesSearch({apiKey, onSelect, placeholder="Buscar cliente en Google Maps..."}){
+  const inputRef=useRef(null);
+  const autocompleteRef=useRef(null);
+
+  useEffect(()=>{
+    if(!apiKey||!inputRef.current) return;
+    const init=()=>{
+      if(!window.google||!window.google.maps||!window.google.maps.places) return;
+      autocompleteRef.current=new window.google.maps.places.Autocomplete(inputRef.current,{
+        componentRestrictions:{country:"hn"},
+        fields:["name","geometry","formatted_address","address_components"]
+      });
+      autocompleteRef.current.addListener("place_changed",()=>{
+        const place=autocompleteRef.current.getPlace();
+        if(!place.geometry) return;
+        const lat=place.geometry.location.lat();
+        const lng=place.geometry.location.lng();
+        // Extract city and department from address_components
+        let city="",department="";
+        (place.address_components||[]).forEach(c=>{
+          if(c.types.includes("locality")) city=c.long_name;
+          if(c.types.includes("administrative_area_level_1")) department=c.long_name;
+        });
+        onSelect({
+          name:place.name||"",
+          address:place.formatted_address||"",
+          lat,lng,city,department
+        });
+      });
+    };
+    if(window.google&&window.google.maps&&window.google.maps.places) init();
+    else {
+      const interval=setInterval(()=>{if(window.google?.maps?.places){clearInterval(interval);init();}},300);
+      return()=>clearInterval(interval);
+    }
+  },[apiKey]);
+
+  if(!apiKey) return null;
+  return(
+    <div style={{position:"relative",marginBottom:8}}>
+      <input ref={inputRef} placeholder={placeholder}
+        style={{width:"100%",padding:"9px 12px 9px 32px",borderRadius:8,border:"1px solid #185FA5",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+      <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14}}>🔍</span>
+    </div>
+  );
+}
+
 // ─── GOOGLE MAP COMPONENT ─────────────────────────────────────────────────────
 function GoogleMap({trip,apiKey,height=320}){
   const ref=useRef(null);
@@ -163,7 +212,7 @@ function GoogleMap({trip,apiKey,height=320}){
     } else if(!document.getElementById("gmaps-script")){
       const s=document.createElement("script");
       s.id="gmaps-script";
-      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=directions&callback=__labtrackMapInit`;
+      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=directions,places&callback=__labtrackMapInit`;
       window.__labtrackMapInit=initMap;
       document.head.appendChild(s);
     } else {
@@ -570,15 +619,23 @@ function Inventario({inventory,onAdd}){
 }
 
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
-function Clientes({clients,onAdd,trips,inventory}){
+function Clientes({clients,onAdd,trips,inventory,mapsKey}){
   const [show,setShow]=useState(false);
   const [sel,setSel]=useState(null);
   const [f,setF]=useState({name:"",contact:"",phone:"",email:"",city:"",department:"",type:"Clínica"});
   const set=k=>v=>setF(p=>({...p,[k]:v}));
+  const [placesResult,setPlacesResult]=useState(null);
+  const handlePlacesSelect=(place)=>{
+    setPlacesResult(place);
+    setF(p=>({...p,name:place.name||p.name,city:place.city||p.city,department:place.department||p.department}));
+  };
   const add=async()=>{
     if(!f.name){alert("El nombre es requerido");return;}
-    await onAdd(f);
+    const data={...f};
+    if(placesResult){data.lat=placesResult.lat;data.lng=placesResult.lng;data.address=placesResult.address;}
+    await onAdd(data);
     setF({name:"",contact:"",phone:"",email:"",city:"",department:"",type:"Clínica"});
+    setPlacesResult(null);
     setShow(false);
   };
   const icons={Hospital:"🏥",Laboratorio:"🔬",Clínica:"🏪",Otro:"🏢"};
@@ -612,7 +669,11 @@ function Clientes({clients,onAdd,trips,inventory}){
       {show&&(
         <Modal title="Agregar cliente" onClose={()=>setShow(false)}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Field label="Nombre de la institución" span={2}><Input value={f.name} onChange={set("name")} placeholder="Ej: Hospital Central"/></Field>
+            <Field label="Nombre de la institución" span={2}>
+              {mapsKey&&<PlacesSearch apiKey={mapsKey} onSelect={handlePlacesSelect} placeholder="Buscar en Google Maps..."/>}
+              <Input value={f.name} onChange={set("name")} placeholder="Ej: Hospital Central"/>
+              {placesResult&&<div style={{fontSize:11,color:"#1D9E75",marginTop:3}}>✓ Ubicación encontrada: {placesResult.address}</div>}
+            </Field>
             <Field label="Tipo"><Select value={f.type} onChange={set("type")}><option>Hospital</option><option>Laboratorio</option><option>Clínica</option><option>Otro</option></Select></Field>
             <Field label="Persona de contacto"><Input value={f.contact} onChange={set("contact")} placeholder="Dr. Juan López"/></Field>
             <Field label="Teléfono"><Input value={f.phone} onChange={set("phone")} placeholder="+504 2xxx-xxxx"/></Field>
@@ -715,33 +776,84 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const [km,setKm]=useState(0);
   const [startTime,setStartTime]=useState(null);
   const [elapsed,setElapsed]=useState(0);
-  const [clientId,setClientId]=useState("");
-  const [stops,setStops]=useState([]); // [{clientId, equipIds, type, arrivalTime, departureTime}]
-  const [currentStopIdx,setCurrentStopIdx]=useState(0);
-  const [equips,setEquips]=useState([]);
-  const [type,setType]=useState("entrega");
-  const [notes,setNotes]=useState("");
+  // Destinations: [{clientId, equipIds, type, notes}]
+  const [destinations,setDestinations]=useState([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
   const [gpsPts,setGpsPts]=useState([]);
   const [gpsError,setGpsError]=useState("");
-  const [stopTimers,setStopTimers]=useState({}); // {stopIdx: {arrival, departure, elapsed}}
-  const [atStop,setAtStop]=useState(false);
+  const [currentDestIdx,setCurrentDestIdx]=useState(0);
+  const [destTimers,setDestTimers]=useState({}); // {idx: {arrival, arrivalStr, departure, departureStr, elapsed}}
+  const [atDest,setAtDest]=useState(false);
+  const [orderMode,setOrderMode]=useState(null); // null | "ask" | "manual" | "auto_ask" | "done"
+  const [orderedDests,setOrderedDests]=useState([]);
   const watchRef=useRef(null);
   const timerRef=useRef(null);
-  const stopTimerRef=useRef(null);
+  const destTimerRef=useRef(null);
+  const wakeLockRef=useRef(null);
   const myTrips=trips.filter(t=>t.technicianId===user.id);
   const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
   const thisMonth=new Date().toISOString().slice(0,7);
   const monthTrips=myTrips.filter(t=>t.date.startsWith(thisMonth));
   const pendingAmt=myTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0);
 
+  // Haversine distance
   const calcDist=([lat1,lon1],[lat2,lon2])=>{
-    const R=6371;
-    const dLat=(lat2-lat1)*Math.PI/180;
-    const dLon=(lon2-lon1)*Math.PI/180;
-    const a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
     return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
   };
 
+  // Distance between two clients using their coordinates
+  const clientDist=(c1,c2)=>{
+    if(!c1?.lat||!c2?.lat) return 9999;
+    return calcDist([c1.lat,c1.lng],[c2.lat,c2.lng]);
+  };
+
+  // Sort destinations by distance (nearest first or farthest first)
+  const sortDestinations=(mode)=>{
+    const validDests=destinations.filter(d=>d.clientId);
+    if(validDests.length<2){setOrderMode("done");return;}
+    const OFFICE={lat:14.0999,lng:-87.2062}; // Tegucigalpa office approx
+    const withDist=validDests.map(d=>{
+      const cl=clients.find(c=>c.id===d.clientId);
+      const dist=cl?.lat?calcDist([OFFICE.lat,OFFICE.lng],[cl.lat,cl.lng]):9999;
+      return {...d,dist};
+    });
+    let sorted;
+    if(mode==="near_far") sorted=withDist.sort((a,b)=>a.dist-b.dist);
+    else sorted=withDist.sort((a,b)=>b.dist-a.dist); // far_near
+    setDestinations(sorted.map(({dist,...d})=>d));
+    setOrderMode("done");
+  };
+
+  // Open Google Maps with all destinations in order
+  const openGoogleMaps=(fromIdx=0)=>{
+    const validDests=destinations.filter(d=>d.clientId);
+    if(validDests.length===0) return;
+    const dest=validDests[fromIdx];
+    const cl=clients.find(c=>c.id===dest?.clientId);
+    if(!cl) return;
+    const remaining=validDests.slice(fromIdx+1);
+    if(remaining.length===0){
+      // Just navigate to this one
+      const url=cl.lat?`https://www.google.com/maps/dir/?api=1&destination=${cl.lat},${cl.lng}&travelmode=driving`:`https://www.google.com/maps/search/${encodeURIComponent(cl.name+" "+cl.city+" Honduras")}`;
+      window.open(url,'_blank');
+    } else {
+      // Multi-stop route
+      const waypoints=remaining.slice(0,-1).map(d=>{
+        const c=clients.find(cl=>cl.id===d.clientId);
+        return c?.lat?`${c.lat},${c.lng}`:encodeURIComponent(`${c?.name} ${c?.city} Honduras`);
+      });
+      const finalDest=remaining[remaining.length-1];
+      const finalCl=clients.find(c=>c.id===finalDest.clientId);
+      const destStr=finalCl?.lat?`${finalCl.lat},${finalCl.lng}`:encodeURIComponent(`${finalCl?.name} ${finalCl?.city} Honduras`);
+      const originStr=cl.lat?`${cl.lat},${cl.lng}`:encodeURIComponent(`${cl.name} ${cl.city} Honduras`);
+      const waypointStr=waypoints.length>0?`&waypoints=${waypoints.join("|")}`:"";
+      const url=`https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}${waypointStr}&travelmode=driving`;
+      window.open(url,'_blank');
+    }
+  };
+
+  // GPS tracking
   useEffect(()=>{
     if(active){
       timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
@@ -752,123 +864,124 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
           const newPt=[pos.coords.latitude,pos.coords.longitude];
           setGpsPts(prev=>{
             if(prev.length===0) return [newPt];
-            const lastPt=prev[prev.length-1];
-            const dist=calcDist(lastPt,newPt);
+            const dist=calcDist(prev[prev.length-1],newPt);
             if(dist>0.05){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
             return prev;
           });
         },
-        err=>{if(err.code===1)setGpsError("Permiso denegado");else setGpsError("Error GPS");},
+        err=>{setGpsError(err.code===1?"Permiso denegado":"Error GPS");},
         {enableHighAccuracy:true,maximumAge:5000,timeout:15000}
       );
+      // WakeLock to keep screen on
+      if('wakeLock' in navigator){
+        navigator.wakeLock.request('screen').then(lock=>{wakeLockRef.current=lock;}).catch(()=>{});
+      }
     } else {
       clearInterval(timerRef.current);
-      if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
+      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+      if(wakeLockRef.current){wakeLockRef.current.release();wakeLockRef.current=null;}
     }
-    return()=>{clearInterval(timerRef.current);if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);};
+    return()=>{
+      clearInterval(timerRef.current);
+      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    };
   },[active]);
 
-  const addStop=()=>{
-    setStops(prev=>[...prev,{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+  const addDestination=()=>{
+    setDestinations(prev=>[...prev,{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+  };
+  const removeDestination=idx=>{
+    if(destinations.length===1) return;
+    setDestinations(prev=>prev.filter((_,i)=>i!==idx));
+  };
+  const updateDest=(idx,key,val)=>setDestinations(prev=>prev.map((d,i)=>i===idx?{...d,[key]:val}:d));
+  const toggleDestEquip=(idx,eqId)=>setDestinations(prev=>prev.map((d,i)=>{
+    if(i!==idx) return d;
+    const equipIds=d.equipIds.includes(eqId)?d.equipIds.filter(e=>e!==eqId):[...d.equipIds,eqId];
+    return {...d,equipIds};
+  }));
+
+  const start=()=>{
+    const valid=destinations.filter(d=>d.clientId);
+    if(valid.length===0){alert("Agrega al menos un destino");return;}
+    // Ask about order if multiple destinations
+    if(valid.length>1&&orderMode!=="done"){
+      setOrderMode("ask");
+      return;
+    }
+    setActive(true);setKm(0);setElapsed(0);setGpsPts([]);
+    setCurrentDestIdx(0);setStartTime(new Date());setTab("activo");
+    // Open Maps for first destination
+    openGoogleMaps(0);
   };
 
-  const removeStop=idx=>{
-    setStops(prev=>prev.filter((_,i)=>i!==idx));
-  };
-
-  const updateStop=(idx,key,val)=>{
-    setStops(prev=>prev.map((s,i)=>i===idx?{...s,[key]:val}:s));
-  };
-
-  const toggleStopEquip=(idx,eqId)=>{
-    setStops(prev=>prev.map((s,i)=>{
-      if(i!==idx) return s;
-      const equipIds=s.equipIds.includes(eqId)?s.equipIds.filter(e=>e!==eqId):[...s.equipIds,eqId];
-      return {...s,equipIds};
-    }));
-  };
-
-  const openWaze=()=>{
-    const allStops=[...stops.filter(s=>s.clientId)];
-    if(!clientId&&allStops.length===0){alert("Agrega al menos un destino");return;}
-    const destClient=clients.find(c=>c.id===clientId);
-    const waypoints=allStops.map(s=>{
-      const cl=clients.find(c=>c.id===s.clientId);
-      return cl?`${cl.name} ${cl.city} Honduras`:"";
-    }).filter(Boolean);
-    const dest=destClient?`${destClient.name} ${destClient.city} Honduras`:"Honduras";
-    const allDests=[...waypoints,dest].join("/");
-    const url=`https://www.google.com/maps/dir/${allDests}`;
-    window.open(url,'_blank');
-  };
-
-  const arriveAtStop=idx=>{
+  const arriveAtDest=idx=>{
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
-    setStopTimers(prev=>({...prev,[idx]:{arrival:now,arrivalStr:p2(now),elapsed:0}}));
-    setAtStop(true);
-    stopTimerRef.current=setInterval(()=>{
-      setStopTimers(prev=>({...prev,[idx]:{...prev[idx],elapsed:(prev[idx]?.elapsed||0)+1}}));
+    setDestTimers(prev=>({...prev,[idx]:{arrival:now,arrivalStr:p2(now),elapsed:0}}));
+    setAtDest(true);
+    destTimerRef.current=setInterval(()=>{
+      setDestTimers(prev=>({...prev,[idx]:{...prev[idx],elapsed:(prev[idx]?.elapsed||0)+1}}));
     },1000);
   };
 
-  const departFromStop=idx=>{
-    clearInterval(stopTimerRef.current);
+  const departFromDest=idx=>{
+    clearInterval(destTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
-    setStopTimers(prev=>({...prev,[idx]:{...prev[idx],departure:now,departureStr:p2(now)}}));
-    setAtStop(false);
-    setCurrentStopIdx(idx+1);
-  };
-
-  const start=()=>{
-    if(!clientId&&stops.every(s=>!s.clientId)){alert("Agrega al menos un destino");return;}
-    setActive(true);setKm(0);setElapsed(0);setGpsPts([]);setCurrentStopIdx(0);
-    setStartTime(new Date());setTab("activo");
+    setDestTimers(prev=>({...prev,[idx]:{...prev[idx],departure:now,departureStr:p2(now)}}));
+    setAtDest(false);
+    const nextIdx=idx+1;
+    const validDests=destinations.filter(d=>d.clientId);
+    setCurrentDestIdx(nextIdx);
+    // If there's a next destination, open Maps
+    if(nextIdx<validDests.length) openGoogleMaps(nextIdx);
   };
 
   const end=async()=>{
     setActive(false);
-    clearInterval(stopTimerRef.current);
+    clearInterval(destTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
-    const client=clients.find(c=>c.id===clientId);
+    const validDests=destinations.filter(d=>d.clientId);
+    const mainDest=validDests[validDests.length-1]; // last = main destination
+    const client=clients.find(c=>c.id===mainDest?.clientId);
     const finalKm=+km.toFixed(1)||1;
     const firstPt=gpsPts[0]||null;
     const lastPt=gpsPts[gpsPts.length-1]||null;
-    // Build stops with timing
-    const tripStops=stops.filter(s=>s.clientId).map((s,i)=>{
-      const cl=clients.find(c=>c.id===s.clientId);
-      const timer=stopTimers[i]||{};
+    const tripStops=validDests.slice(0,-1).map((d,i)=>{
+      const cl=clients.find(c=>c.id===d.clientId);
+      const timer=destTimers[i]||{};
       return {
-        label:`${cl?.name||"Parada"} — ${cl?.city||""}`,
-        time:timer.arrivalStr||"",
-        departureTime:timer.departureStr||"",
+        label:`${cl?.name||"Destino"} — ${cl?.city||""}`,
+        time:timer.arrivalStr||"",departureTime:timer.departureStr||"",
         timeSpent:timer.elapsed?Math.round(timer.elapsed/60)+" min":"",
-        lat:lastPt?.[0]||0,lng:lastPt?.[1]||0
+        lat:cl?.lat||0,lng:cl?.lng||0
       };
     });
-    const allEquipIds=[...equips,...stops.flatMap(s=>s.equipIds)];
+    const allEquipIds=[...new Set(validDests.flatMap(d=>d.equipIds))];
     await onSaveTrip({
-      technicianId:user.id,clientId:clientId||stops.find(s=>s.clientId)?.clientId,
-      date:now.toISOString().slice(0,10),tripType:type,equipmentIds:[...new Set(allEquipIds)],
+      technicianId:user.id,clientId:mainDest?.clientId||validDests[0]?.clientId,
+      date:now.toISOString().slice(0,10),
+      tripType:validDests[0]?.type||"entrega",
+      equipmentIds:allEquipIds,
       origin:{lat:firstPt?.[0]||0,lng:firstPt?.[1]||0,label:"Punto de origen"},
-      destination:{lat:lastPt?.[0]||0,lng:lastPt?.[1]||0,label:client?`${client.name}, ${client.city}`:"Destino"},
+      destination:{lat:client?.lat||lastPt?.[0]||0,lng:client?.lng||lastPt?.[1]||0,label:client?`${client.name}, ${client.city}`:"Destino"},
       stops:tripStops,routePoints:gpsPts,
       startTime:p2(startTime||now),endTime:p2(now),
       km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
-      notes:notes||"Viaje completado desde la app móvil."
+      notes:validDests.map(d=>d.notes).filter(Boolean).join(" | ")||"Viaje completado."
     });
-    setKm(0);setClientId("");setEquips([]);setNotes("");setGpsPts([]);setElapsed(0);
-    setStops([]);setStopTimers({});setCurrentStopIdx(0);setAtStop(false);
+    setKm(0);setDestinations([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+    setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);
+    setAtDest(false);setOrderMode(null);setStartTime(null);
     setTab("historial");
   };
 
-  const toggle=id=>setEquips(p=>p.includes(id)?p.filter(e=>e!==id):[...p,id]);
   const mins=Math.floor(elapsed/60),secs=elapsed%60;
   const reimb=+(km*rate).toFixed(2);
   const hora=new Date().getHours();
-  const saludo=hora<12?"¡Buenos días":hora<18?"¡Buenas tardes":"¡Buenas noches";
+  const validDests=destinations.filter(d=>d.clientId);
 
   return(
     <div style={{maxWidth:400,margin:"0 auto"}}>
@@ -882,16 +995,13 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
 
           <div style={{padding:14,overflowY:"auto",maxHeight:520}}>
 
-            {/* INICIO */}
+            {/* ── INICIO ── */}
             {tab==="inicio"&&(
               <div>
-                {/* Saludo */}
                 <div style={{background:"linear-gradient(135deg,#E6F1FB,#EEEDFE)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
                   <div style={{fontSize:15,fontWeight:700,color:"#0C447C"}}>{hora<12?"¡Buenos días":hora<18?"¡Buenas tardes":"¡Buenas noches"}, {user.name.split(" ")[0]}! 👋</div>
                   <div style={{fontSize:12,color:"#185FA5",marginTop:3}}>Listo para tu próximo viaje</div>
                 </div>
-
-                {/* Stats del mes */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
                   <div style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px"}}>
                     <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em"}}>Km este mes</div>
@@ -904,171 +1014,216 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                     <div style={{fontSize:11,color:"var(--text2)"}}>por reembolsar</div>
                   </div>
                 </div>
-
-                {/* Botón iniciar viaje */}
                 <button onClick={()=>setTab("viaje")} style={{width:"100%",background:"linear-gradient(135deg,#0F6E56,#1D9E75)",color:"white",border:"none",borderRadius:14,padding:"16px",fontSize:15,fontWeight:800,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                   🚗 Iniciar nuevo viaje
                 </button>
-
-                {/* Últimos viajes */}
                 <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Últimos viajes</div>
-                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,textAlign:"center",padding:"20px 0"}}>Sin viajes aún</div>}
+                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,textAlign:"center",padding:"16px 0"}}>Sin viajes aún</div>}
                 {myTrips.slice(0,3).map(t=>{
                   const cl=clients.find(c=>c.id===t.clientId);
                   return(
                     <div key={t.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div>
-                        <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div>
-                        <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{t.date} · {t.km} km</div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{fontWeight:700,fontSize:12,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div>
-                        <Badge type={t.status}>{t.status}</Badge>
-                      </div>
+                      <div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div><div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{t.date} · {t.km} km{(t.stops||[]).length>0?` · ${t.stops.length} parada${t.stops.length!==1?"s":""}`:""}</div></div>
+                      <div style={{textAlign:"right"}}><div style={{fontWeight:700,fontSize:12,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div><Badge type={t.status}>{t.status}</Badge></div>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* PLANIFICAR VIAJE */}
-            {tab==="viaje"&&!active&&(
+            {/* ── PLANIFICAR ── */}
+            {tab==="viaje"&&!active&&orderMode===null&&(
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
                   <button onClick={()=>setTab("inicio")} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:20,padding:0}}>←</button>
                   <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Planificar viaje</div>
                 </div>
 
-                {/* Destino principal */}
-                <div style={{marginBottom:10}}>
-                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>🏁 Destino final</label>
-                  <Select value={clientId} onChange={setClientId}><option value="">Seleccionar cliente...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}</Select>
-                </div>
-
-                {/* Paradas */}
-                {stops.length>0&&(
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>📍 Paradas en el camino</label>
-                    {stops.map((stop,idx)=>(
-                      <div key={idx} style={{background:"#FAEEDA",borderRadius:10,padding:"10px 12px",marginBottom:8,border:"1px solid #EF9F27"}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                          <span style={{fontSize:12,fontWeight:700,color:"#854F0B"}}>Parada {idx+1}</span>
-                          <button onClick={()=>removeStop(idx)} style={{background:"none",border:"none",cursor:"pointer",color:"#993C1D",fontSize:16,padding:0}}>×</button>
-                        </div>
-                        <Select value={stop.clientId} onChange={v=>updateStop(idx,"clientId",v)}>
-                          <option value="">Seleccionar cliente...</option>
-                          {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
-                        </Select>
-                        <div style={{marginTop:6,display:"flex",gap:4}}>
-                          {["entrega","instalación"].map(t=><button key={t} onClick={()=>updateStop(idx,"type",t)} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid #EF9F27",fontSize:11,cursor:"pointer",background:stop.type===t?"#EF9F27":"transparent",color:stop.type===t?"white":"#854F0B",fontWeight:stop.type===t?700:400}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
-                        </div>
+                {destinations.map((dest,idx)=>{
+                  const label=idx===0?"🏁 Destino principal":`📍 Destino ${idx+1}`;
+                  return(
+                    <div key={idx} style={{background:idx===0?"var(--surface)":"#FFF9F0",borderRadius:12,padding:"12px",marginBottom:10,border:`1px solid ${idx===0?"var(--border)":"#EF9F27"}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:12,fontWeight:700,color:idx===0?"var(--text)":"#854F0B"}}>{label}</span>
+                        {idx>0&&<button onClick={()=>removeDestination(idx)} style={{background:"none",border:"none",cursor:"pointer",color:"#993C1D",fontSize:18,padding:0,lineHeight:1}}>×</button>}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <Select value={dest.clientId} onChange={v=>updateDest(idx,"clientId",v)}>
+                        <option value="">Seleccionar cliente...</option>
+                        {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
+                      </Select>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
+                        {["entrega","instalación"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"6px",borderRadius:7,border:"1px solid var(--border)",fontSize:11,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#EEEDFE":"transparent",color:dest.type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
+                      </div>
+                      {/* Equipment selector */}
+                      <div style={{marginTop:6,maxHeight:90,overflowY:"auto"}}>
+                        {inventory.filter(e=>e.stock>0).map(eq=>(
+                          <div key={eq.id} onClick={()=>toggleDestEquip(idx,eq.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:6,cursor:"pointer",marginBottom:3,background:dest.equipIds.includes(eq.id)?"#E6F1FB":"transparent",border:`1px solid ${dest.equipIds.includes(eq.id)?"#185FA5":"var(--border)"}`}}>
+                            <div style={{width:14,height:14,borderRadius:3,border:`2px solid ${dest.equipIds.includes(eq.id)?"#185FA5":"var(--border)"}`,background:dest.equipIds.includes(eq.id)?"#185FA5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{dest.equipIds.includes(eq.id)&&<span style={{color:"white",fontSize:9,fontWeight:700}}>✓</span>}</div>
+                            <span style={{fontSize:11,color:"var(--text)"}}>{eq.name} {eq.model}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
 
-                <button onClick={addStop} style={{width:"100%",background:"transparent",border:"1px dashed #EF9F27",color:"#854F0B",borderRadius:10,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:10}}>
-                  + Agregar parada
+                <button onClick={addDestination} style={{width:"100%",background:"transparent",border:"1px dashed #EF9F27",color:"#854F0B",borderRadius:10,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:12}}>
+                  + Agregar destino
                 </button>
 
-                {/* Tipo */}
-                <div style={{marginBottom:10}}>
-                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Tipo de visita final</label>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                    {["entrega","instalación"].map(t=><button key={t} onClick={()=>setType(t)} style={{padding:9,borderRadius:8,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",fontWeight:type===t?700:400,background:type===t?"#EEEDFE":"var(--surface)",color:type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
-                  </div>
-                </div>
-
-                {/* Equipos */}
-                <div style={{marginBottom:10}}>
-                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Equipos a llevar</label>
-                  <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:120,overflowY:"auto"}}>
-                    {inventory.filter(e=>e.stock>0).map(eq=>(
-                      <div key={eq.id} onClick={()=>toggle(eq.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:equips.includes(eq.id)?"#E6F1FB":"var(--surface)",border:`1px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`}}>
-                        <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`,background:equips.includes(eq.id)?"#185FA5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{equips.includes(eq.id)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}</div>
-                        <div><div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{eq.name} {eq.model}</div><div style={{fontSize:10,color:"var(--text2)"}}>S/N: {eq.serial}</div></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Notas */}
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Notas</label>
-                  <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} placeholder="Observaciones..." style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,resize:"none"}}/>
-                </div>
-
-                {/* Botones */}
                 <button onClick={start} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
-                  ▶ Iniciar viaje y GPS
+                  ▶ Iniciar viaje
                 </button>
               </div>
             )}
 
-            {/* VIAJE ACTIVO */}
+            {/* ── ORDENAR DESTINOS ── */}
+            {orderMode==="ask"&&(
+              <div style={{padding:"8px 0"}}>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>¿Cómo ordenar los destinos?</div>
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>Tienes {validDests.length} destinos. ¿Cómo quieres organizarlos?</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <button onClick={()=>setOrderMode("manual")} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",textAlign:"left",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>📍 Manual</div>
+                    <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>Yo decido el orden de los destinos</div>
+                  </button>
+                  <button onClick={()=>setOrderMode("auto_ask")} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",textAlign:"left",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>🚀 Automático</div>
+                    <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>El sistema calcula el mejor orden</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── AUTO: LEJOS A CERCA O CERCA A LEJOS ── */}
+            {orderMode==="auto_ask"&&(
+              <div style={{padding:"8px 0"}}>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>¿Cómo quieres terminar?</div>
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>Elige el orden que mejor se adapte a tu ruta</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <button onClick={()=>sortDestinations("far_near")} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",textAlign:"left",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>📏 De lejos a cerca</div>
+                    <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>Empieza por el más lejano y termina cerca de la oficina</div>
+                  </button>
+                  <button onClick={()=>sortDestinations("near_far")} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",textAlign:"left",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>🏠 De cerca a lejos</div>
+                    <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>Empieza por los más cercanos primero</div>
+                  </button>
+                </div>
+                <button onClick={()=>setOrderMode("ask")} style={{marginTop:12,background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:13,textDecoration:"underline"}}>← Volver</button>
+              </div>
+            )}
+
+            {/* ── MANUAL ORDER ── */}
+            {orderMode==="manual"&&(
+              <div style={{padding:"8px 0"}}>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Ordenar manualmente</div>
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:12}}>Usa las flechas para cambiar el orden</div>
+                {destinations.filter(d=>d.clientId).map((dest,idx,arr)=>{
+                  const cl=clients.find(c=>c.id===dest.clientId);
+                  return(
+                    <div key={idx} style={{background:"var(--surface)",borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:16,fontWeight:700,color:"var(--text2)",minWidth:20}}>{idx+1}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div>
+                        <div style={{fontSize:11,color:"var(--text2)"}}>{cl?.city}</div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                        {idx>0&&<button onClick={()=>{const d=[...destinations.filter(x=>x.clientId)];[d[idx-1],d[idx]]=[d[idx],d[idx-1]];setDestinations(d);}} style={{background:"var(--border)",border:"none",borderRadius:4,cursor:"pointer",padding:"2px 6px",fontSize:12}}>↑</button>}
+                        {idx<arr.length-1&&<button onClick={()=>{const d=[...destinations.filter(x=>x.clientId)];[d[idx],d[idx+1]]=[d[idx+1],d[idx]];setDestinations(d);}} style={{background:"var(--border)",border:"none",borderRadius:4,cursor:"pointer",padding:"2px 6px",fontSize:12}}>↓</button>}
+                      </div>
+                    </div>
+                  );
+                })}
+                <button onClick={()=>{setOrderMode("done");}} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:12,padding:"12px",fontSize:13,fontWeight:700,cursor:"pointer",marginTop:8}}>
+                  ✓ Confirmar este orden
+                </button>
+                <button onClick={()=>setOrderMode("ask")} style={{marginTop:8,background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:13,textDecoration:"underline",display:"block",textAlign:"center",width:"100%"}}>← Volver</button>
+              </div>
+            )}
+
+            {/* ── ORDER DONE → START ── */}
+            {orderMode==="done"&&(
+              <div style={{padding:"8px 0"}}>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:12}}>✓ Orden confirmado</div>
+                {destinations.filter(d=>d.clientId).map((dest,idx)=>{
+                  const cl=clients.find(c=>c.id===dest.clientId);
+                  return(
+                    <div key={idx} style={{background:"var(--surface)",borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:"#185FA5",color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{idx+1}</div>
+                      <div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name}</div><div style={{fontSize:11,color:"var(--text2)"}}>{cl?.city} · {dest.type}</div></div>
+                    </div>
+                  );
+                })}
+                <button onClick={()=>{
+                  setActive(true);setKm(0);setElapsed(0);setGpsPts([]);
+                  setCurrentDestIdx(0);setStartTime(new Date());setTab("activo");
+                  openGoogleMaps(0);
+                }} style={{width:"100%",background:"#0F6E56",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:12}}>
+                  ▶ ¡Iniciar viaje!
+                </button>
+              </div>
+            )}
+
+            {/* ── VIAJE ACTIVO ── */}
             {tab==="activo"&&active&&(
               <div>
-                {/* GPS Status */}
-                <div style={{background:gpsError?"#FCEBEB":"#E1F5EE",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                <div style={{background:gpsError?"#FCEBEB":"#E1F5EE",borderRadius:10,padding:"10px 13px",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
                   <div style={{width:10,height:10,borderRadius:"50%",background:gpsError?"#A32D2D":"#1D9E75",flexShrink:0,boxShadow:gpsError?"none":"0 0 0 3px rgba(29,158,117,.25)"}}/>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":"#085041"}}>{gpsError?"Error de GPS":"GPS activo — rastreando"}</div>
-                    <div style={{fontSize:11,color:gpsError?"#A32D2D":"#0F6E56"}}>{gpsError||`${mins}m ${secs}s · ${gpsPts.length} puntos`}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":"#085041"}}>{gpsError?"Error GPS":"GPS activo · pantalla encendida"}</div>
+                    <div style={{fontSize:11,color:gpsError?"#A32D2D":"#0F6E56"}}>{gpsError||`${mins}m ${secs}s · ${gpsPts.length} puntos GPS`}</div>
                   </div>
                 </div>
 
-                {/* Km grande */}
-                <div style={{textAlign:"center",padding:"10px 0 14px"}}>
-                  <div style={{fontSize:52,fontWeight:800,color:"var(--text)",lineHeight:1,fontFamily:"'DM Mono',monospace"}}>{km.toFixed(1)}</div>
-                  <div style={{fontSize:12,color:"var(--text2)",marginTop:4}}>km recorridos</div>
+                <div style={{textAlign:"center",padding:"8px 0 12px"}}>
+                  <div style={{fontSize:50,fontWeight:800,color:"var(--text)",lineHeight:1,fontFamily:"'DM Mono',monospace"}}>{km.toFixed(1)}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>km recorridos</div>
                 </div>
 
-                {/* Paradas activas */}
-                {stops.filter(s=>s.clientId).length>0&&(
-                  <div style={{marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Paradas del viaje</div>
-                    {stops.filter(s=>s.clientId).map((stop,idx)=>{
-                      const cl=clients.find(c=>c.id===stop.clientId);
-                      const timer=stopTimers[idx];
-                      const done=timer?.departureStr;
-                      const inProgress=timer?.arrivalStr&&!done;
-                      return(
-                        <div key={idx} style={{background:done?"#EAF3DE":inProgress?"#FAEEDA":"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${done?"#639922":inProgress?"#EF9F27":"var(--border)"}`}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                            <div>
-                              <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>📍 {cl?.name}</div>
-                              <div style={{fontSize:11,color:"var(--text2)"}}>{stop.type} · {cl?.city}</div>
-                              {inProgress&&<div style={{fontSize:11,color:"#854F0B",marginTop:2}}>⏱ Tiempo en parada: {Math.floor((stopTimers[idx]?.elapsed||0)/60)}m {(stopTimers[idx]?.elapsed||0)%60}s</div>}
-                              {done&&<div style={{fontSize:11,color:"#3B6D11",marginTop:2}}>✓ Llegada: {timer.arrivalStr} · Salida: {timer.departureStr} · {Math.round((timer.departure-timer.arrival)/60000)} min</div>}
+                {/* Destinos con estado */}
+                <div style={{marginBottom:10}}>
+                  {validDests.map((dest,idx)=>{
+                    const cl=clients.find(c=>c.id===dest.clientId);
+                    const timer=destTimers[idx];
+                    const done=timer?.departureStr;
+                    const inProgress=timer?.arrivalStr&&!done;
+                    const isCurrent=!done&&!inProgress&&idx===currentDestIdx;
+                    return(
+                      <div key={idx} style={{background:done?"#EAF3DE":inProgress?"#FAEEDA":isCurrent?"#E6F1FB":"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${done?"#639922":inProgress?"#EF9F27":isCurrent?"#185FA5":"var(--border)"}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                          <div style={{flex:1}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{width:22,height:22,borderRadius:"50%",background:done?"#1D9E75":inProgress?"#EF9F27":isCurrent?"#185FA5":"#aaa",color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{done?"✓":idx+1}</div>
+                              <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name}</div>
                             </div>
-                            {!done&&!inProgress&&idx===currentStopIdx&&(
-                              <button onClick={()=>arriveAtStop(idx)} style={{background:"#EF9F27",color:"white",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Llegué</button>
-                            )}
-                            {inProgress&&(
-                              <button onClick={()=>departFromStop(idx)} style={{background:"#185FA5",color:"white",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Salir</button>
-                            )}
-                            {done&&<span style={{fontSize:16}}>✅</span>}
+                            <div style={{fontSize:11,color:"var(--text2)",marginTop:3,marginLeft:28}}>{dest.type} · {cl?.city}</div>
+                            {inProgress&&<div style={{fontSize:11,color:"#854F0B",marginTop:3,marginLeft:28}}>⏱ En destino: {Math.floor((timer?.elapsed||0)/60)}m {(timer?.elapsed||0)%60}s</div>}
+                            {done&&<div style={{fontSize:11,color:"#3B6D11",marginTop:3,marginLeft:28}}>✓ {timer.arrivalStr}–{timer.departureStr} · {Math.round((timer.departure-timer.arrival)/60000)} min</div>}
+                          </div>
+                          <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+                            {isCurrent&&<button onClick={()=>openGoogleMaps(idx)} style={{background:"#185FA5",color:"white",border:"none",borderRadius:7,padding:"5px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>🗺️ Navegar</button>}
+                            {isCurrent&&<button onClick={()=>arriveAtDest(idx)} style={{background:"#1D9E75",color:"white",border:"none",borderRadius:7,padding:"5px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>📍 Llegué</button>}
+                            {inProgress&&<button onClick={()=>departFromDest(idx)} style={{background:"#185FA5",color:"white",border:"none",borderRadius:7,padding:"5px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>🚗 Salir</button>}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-                {/* Reembolso */}
-                <div style={{background:"#EEEDFE",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:22,fontWeight:800,color:"#26215C",marginTop:2,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
+                <div style={{background:"#EEEDFE",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:20,fontWeight:800,color:"#26215C",marginTop:1,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
                   <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
                 </div>
 
-                <button onClick={openWaze} style={{width:"100%",background:"#1D9E75",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>ðºï¸ Ver mejor ruta en Google Maps</button>
-                <button onClick={end} style={{width:"100%",background:"#993C1D",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                <button onClick={end} style={{width:"100%",background:"#993C1D",color:"white",border:"none",borderRadius:14,padding:"13px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
                   ■ Finalizar viaje
                 </button>
               </div>
             )}
 
-            {/* HISTORIAL */}
+            {/* ── HISTORIAL ── */}
             {tab==="historial"&&(
               <div>
                 <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:12}}>Mis viajes ({myTrips.length})</div>
@@ -1081,7 +1236,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                         <div>
                           <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div>
                           <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{t.date} · {t.km} km · {t.tripType}</div>
-                          {(t.stops||[]).length>0&&<div style={{fontSize:11,color:"#854F0B",marginTop:1}}>📍 {t.stops.length} parada{t.stops.length!==1?"s":""}</div>}
+                          {(t.stops||[]).length>0&&<div style={{fontSize:11,color:"#854F0B",marginTop:1}}>📍 {t.stops.length} destino{t.stops.length!==1?"s":""} en el camino</div>}
                         </div>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontWeight:800,fontSize:13,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div>
@@ -1094,7 +1249,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
               </div>
             )}
 
-            {/* PERFIL */}
+            {/* ── PERFIL ── */}
             {tab==="perfil"&&(
               <div style={{padding:"8px 0"}}>
                 <div style={{textAlign:"center",padding:"16px 0 20px"}}>
@@ -1104,20 +1259,25 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                   <div style={{fontSize:12,background:"#E6F1FB",color:"#185FA5",display:"inline-block",padding:"3px 12px",borderRadius:20,marginTop:6,fontWeight:600}}>{user.role==="admin"?"Administrador":"Técnico"}</div>
                 </div>
                 <div style={{background:"var(--surface)",borderRadius:12,padding:14}}>
-                  {[["Total viajes",myTrips.length],["Total km",`${myTrips.reduce((s,t)=>s+t.km,0)} km`],["Este mes",`${monthTrips.length} viajes · ${monthTrips.reduce((s,t)=>s+t.km,0)} km`],["Pendiente",`L.${fmt(pendingAmt)}`],["Reembolsado",`L.${fmt(myTrips.filter(t=>t.status==="reembolsado").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v],i,a)=>(
+                  {[["Total viajes",myTrips.length],["Total km",`${myTrips.reduce((s,t)=>s+t.km,0)} km`],["Este mes",`${monthTrips.length} viajes`],["Pendiente",`L.${fmt(pendingAmt)}`],["Reembolsado",`L.${fmt(myTrips.filter(t=>t.status==="reembolsado").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v],i,a)=>(
                     <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<a.length-1?"1px solid var(--border)":"none",fontSize:13}}><span style={{color:"var(--text2)"}}>{l}</span><span style={{fontWeight:700,color:"var(--text)"}}>{v}</span></div>
                   ))}
                 </div>
               </div>
             )}
+
           </div>
 
           {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
             {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
-              <button key={t.k} onClick={()=>{if(t.k==="viaje"&&active){setTab("activo");return;}setTab(t.k);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:(tab===t.k||(t.k==="viaje"&&tab==="activo"))?"#185FA5":"var(--text2)"}}>
+              <button key={t.k} onClick={()=>{
+                if(t.k==="viaje"&&active){setTab("activo");return;}
+                if(t.k!=="inicio"&&t.k!=="historial"&&t.k!=="perfil") return;
+                setTab(t.k);
+              }} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:(tab===t.k||(t.k==="viaje"&&(tab==="activo"||tab==="viaje"||orderMode!==null)))?"#185FA5":"var(--text2)"}}>
                 <span style={{fontSize:20}}>{t.i}</span>
-                <span style={{fontSize:9,fontWeight:(tab===t.k||(t.k==="viaje"&&tab==="activo"))?700:400}}>{t.l}</span>
+                <span style={{fontSize:9,fontWeight:(tab===t.k||(t.k==="viaje"&&(tab==="activo"||tab==="viaje"||orderMode!==null)))?700:400}}>{t.l}</span>
               </button>
             ))}
           </div>
