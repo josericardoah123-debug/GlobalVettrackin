@@ -825,7 +825,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                   <div style={{width:10,height:10,borderRadius:"50%",background:gpsError?"#A32D2D":active?"#1D9E75":"#aaa",flexShrink:0,boxShadow:active&&!gpsError?"0 0 0 3px rgba(29,158,117,.25)":"none"}}/>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":active?"#085041":"var(--text2)"}}>{gpsError?"Error de GPS":active?"GPS activo — rastreando":"GPS listo"}</div>
-                    <div style={{fontSize:11,color:gpsError?"#A32D2D":active?"#0F6E56":"var(--text2)"}}>{gpsError?gpsError:active?`${mins}m ${secs}s · ${gpsPts.length} pts · ${km.toFixed(2)} km reales\`:"Se activa automáticamente al iniciar"}</div>
+                    <div style={{fontSize:11,color:gpsError?"#A32D2D":active?"#0F6E56":"var(--text2)"}}>{gpsError?gpsError:active?`${mins}m ${secs}s · ${gpsPts.length} pts · ${km.toFixed(2)} km reales`:"Se activa automáticamente al iniciar"}</div>
                   </div>
                 </div>
                 {!active&&<>
