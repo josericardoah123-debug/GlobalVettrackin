@@ -999,9 +999,6 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                 </div>
 
                 {/* Botones */}
-                <button onClick={openWaze} style={{width:"100%",background:"#1D9E75",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  🗺️ Ver mejor ruta en Google Maps
-                </button>
                 <button onClick={start} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
                   ▶ Iniciar viaje y GPS
                 </button>
@@ -1064,6 +1061,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                   <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
                 </div>
 
+                <button onClick={openWaze} style={{width:"100%",background:"#1D9E75",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>ðºï¸ Ver mejor ruta en Google Maps</button>
                 <button onClick={end} style={{width:"100%",background:"#993C1D",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
                   ■ Finalizar viaje
                 </button>
