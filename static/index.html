@@ -113,27 +113,38 @@ function GoogleMap({trip,apiKey,height=320}){
       });
       mapRef.current=map;
 
-      // Draw route
-      if(pts.length>1){
+      const originPos={lat:trip.origin.lat,lng:trip.origin.lng};
+      const destPos={lat:trip.destination.lat,lng:trip.destination.lng};
+
+      // If we have real GPS points (more than 2), draw them as actual route
+      if(pts.length>2){
         const path=pts.map(p=>({lat:p[0],lng:p[1]}));
         new window.google.maps.Polyline({path,geodesic:true,strokeColor:"#185FA5",strokeOpacity:0.9,strokeWeight:4,map});
+        // Markers
+        new window.google.maps.Marker({position:originPos,map,label:{text:"A",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#1D9E75",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
+        new window.google.maps.Marker({position:destPos,map,label:{text:"B",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
+        const bounds=new window.google.maps.LatLngBounds();
+        path.forEach(p=>bounds.extend(p));
+        map.fitBounds(bounds,{top:40,right:40,bottom:40,left:40});
+      } else {
+        // Use Directions API for road route between origin and destination
+        const directionsService=new window.google.maps.DirectionsService();
+        const directionsRenderer=new window.google.maps.DirectionsRenderer({
+          map,suppressMarkers:true,
+          polylineOptions:{strokeColor:"#185FA5",strokeOpacity:0.9,strokeWeight:4}
+        });
+        directionsService.route({
+          origin:originPos,
+          destination:destPos,
+          travelMode:window.google.maps.TravelMode.DRIVING
+        },(result,status)=>{
+          if(status==="OK") directionsRenderer.setDirections(result);
+        });
+        // Origin marker
+        new window.google.maps.Marker({position:originPos,map,label:{text:"A",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#1D9E75",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
+        // Destination marker
+        new window.google.maps.Marker({position:destPos,map,label:{text:"B",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
       }
-
-      // Origin marker
-      new window.google.maps.Marker({
-        position:{lat:trip.origin.lat,lng:trip.origin.lng},map,
-        label:{text:"A",color:"white",fontWeight:"bold"},
-        title:trip.origin.label,
-        icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#1D9E75",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}
-      });
-
-      // Destination marker
-      new window.google.maps.Marker({
-        position:{lat:trip.destination.lat,lng:trip.destination.lng},map,
-        label:{text:"B",color:"white",fontWeight:"bold"},
-        title:trip.destination.label,
-        icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}
-      });
 
       // Stop markers
       (trip.stops||[]).forEach((s,i)=>{
@@ -144,13 +155,6 @@ function GoogleMap({trip,apiKey,height=320}){
           icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#EF9F27",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:12}
         });
       });
-
-      // Fit bounds
-      const bounds=new window.google.maps.LatLngBounds();
-      pts.forEach(p=>bounds.extend({lat:p[0],lng:p[1]}));
-      bounds.extend({lat:trip.origin.lat,lng:trip.origin.lng});
-      bounds.extend({lat:trip.destination.lat,lng:trip.destination.lng});
-      map.fitBounds(bounds,{top:40,right:40,bottom:40,left:40});
     };
 
     // Load Google Maps script if needed
@@ -159,7 +163,7 @@ function GoogleMap({trip,apiKey,height=320}){
     } else if(!document.getElementById("gmaps-script")){
       const s=document.createElement("script");
       s.id="gmaps-script";
-      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=__labtrackMapInit`;
+      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=directions&callback=__labtrackMapInit`;
       window.__labtrackMapInit=initMap;
       document.head.appendChild(s);
     } else {
@@ -709,76 +713,101 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const [tab,setTab]=useState("viaje");
   const [active,setActive]=useState(false);
   const [km,setKm]=useState(0);
+  const [startTime,setStartTime]=useState(null);
   const [elapsed,setElapsed]=useState(0);
   const [clientId,setClientId]=useState("");
   const [equips,setEquips]=useState([]);
   const [type,setType]=useState("entrega");
   const [notes,setNotes]=useState("");
   const [gpsPts,setGpsPts]=useState([]);
-  const [livePos,setLivePos]=useState(null);
-  const interval=useRef(null);
+  const [gpsError,setGpsError]=useState("");
+  const watchRef=useRef(null);
+  const timerRef=useRef(null);
   const myTrips=trips.filter(t=>t.technicianId===user.id);
   const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
 
+  // Calculate distance between two GPS points in km (Haversine formula)
+  const calcDist=([lat1,lon1],[lat2,lon2])=>{
+    const R=6371;
+    const dLat=(lat2-lat1)*Math.PI/180;
+    const dLon=(lon2-lon1)*Math.PI/180;
+    const a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  };
+
   useEffect(()=>{
     if(active){
-      // Real GPS
-      if(navigator.geolocation){
-        navigator.geolocation.getCurrentPosition(pos=>{
-          const pt=[pos.coords.latitude,pos.coords.longitude];
-          setGpsPts([pt]);
-          setLivePos(pt);
-        });
+      // Timer for elapsed display
+      timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
+
+      // Real GPS watch — only adds km when actually moving
+      if(!navigator.geolocation){
+        setGpsError("Tu dispositivo no soporta GPS");
+        return;
       }
-      interval.current=setInterval(()=>{
-        setElapsed(e=>e+1);
-        setKm(k=>+(k+(Math.random()*0.06+0.02)).toFixed(2));
-        // Try real GPS update
-        if(navigator.geolocation){
-          navigator.geolocation.getCurrentPosition(pos=>{
-            const pt=[pos.coords.latitude,pos.coords.longitude];
-            setGpsPts(p=>[...p,pt]);
-            setLivePos(pt);
+      setGpsError("");
+      watchRef.current=navigator.geolocation.watchPosition(
+        pos=>{
+          const newPt=[pos.coords.latitude,pos.coords.longitude];
+          setGpsPts(prev=>{
+            if(prev.length===0) return [newPt];
+            const lastPt=prev[prev.length-1];
+            const dist=calcDist(lastPt,newPt);
+            // Only add point if moved more than 10 meters (avoids GPS drift noise)
+            if(dist>0.01){
+              setKm(k=>+(k+dist).toFixed(2));
+              return [...prev,newPt];
+            }
+            return prev;
           });
-        } else {
-          setGpsPts(p=>[...p,[15.5044+(Math.random()*0.002-0.001)*(p.length+1),-88.0251+(Math.random()*0.003+0.001)*(p.length+1)]]);
-        }
-      },8000);
-    } else clearInterval(interval.current);
-    return()=>clearInterval(interval.current);
+        },
+        err=>{
+          if(err.code===1) setGpsError("Permiso de ubicación denegado — actívalo en ajustes");
+          else setGpsError("Error de GPS: "+err.message);
+        },
+        {enableHighAccuracy:true,maximumAge:5000,timeout:15000}
+      );
+    } else {
+      clearInterval(timerRef.current);
+      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    }
+    return()=>{
+      clearInterval(timerRef.current);
+      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    };
   },[active]);
 
   const start=()=>{
     if(!clientId){alert("Selecciona un cliente primero.");return;}
     if(!equips.length){alert("Selecciona al menos un equipo.");return;}
-    setActive(true);setKm(0);setElapsed(0);
-    setGpsPts([[15.5044,-88.0251]]);
+    setActive(true);setKm(0);setElapsed(0);setGpsPts([]);
+    setStartTime(new Date());
   };
 
   const end=async()=>{
     setActive(false);
     const now=new Date();
-    const startD=new Date(now-elapsed*8000);
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
     const client=clients.find(c=>c.id===clientId);
-    const finalKm=Math.max(Math.round(km),1);
-    const lastPt=gpsPts[gpsPts.length-1]||[15.5044,-88.0251];
+    const finalKm=+km.toFixed(1)||1;
+    const firstPt=gpsPts[0]||null;
+    const lastPt=gpsPts[gpsPts.length-1]||null;
     await onSaveTrip({
       technicianId:user.id,clientId,
       date:now.toISOString().slice(0,10),tripType:type,equipmentIds:equips,
-      origin:{lat:gpsPts[0]?.[0]||15.5044,lng:gpsPts[0]?.[1]||(-88.0251),label:"Punto de origen"},
-      destination:{lat:lastPt[0],lng:lastPt[1],label:`${client?.name}, ${client?.city}`},
+      origin:{lat:firstPt?.[0]||0,lng:firstPt?.[1]||0,label:"Punto de origen"},
+      destination:{lat:lastPt?.[0]||0,lng:lastPt?.[1]||0,label:`${client?.name}, ${client?.city}`},
       stops:[],routePoints:gpsPts,
-      startTime:p2(startD),endTime:p2(now),
+      startTime:p2(startTime||now),endTime:p2(now),
       km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
       notes:notes||"Viaje completado desde la app móvil."
     });
-    setKm(0);setClientId("");setEquips([]);setNotes("");setGpsPts([]);
+    setKm(0);setClientId("");setEquips([]);setNotes("");setGpsPts([]);setElapsed(0);
     setTab("historial");
   };
 
   const toggle=id=>setEquips(p=>p.includes(id)?p.filter(e=>e!==id):[...p,id]);
-  const mins=Math.floor(elapsed*8/60),secs=Math.floor(elapsed*8%60);
+  const mins=Math.floor(elapsed/60),secs=elapsed%60;
   const reimb=+(km*rate).toFixed(2);
 
   return(
@@ -792,11 +821,11 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
           <div style={{padding:16}}>
             {tab==="viaje"&&(
               <div>
-                <div style={{background:active?"#E1F5EE":"var(--surface)",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:10,height:10,borderRadius:"50%",background:active?"#1D9E75":"#aaa",flexShrink:0,boxShadow:active?"0 0 0 3px rgba(29,158,117,.25)":"none"}}/>
+                <div style={{background:gpsError?"#FCEBEB":active?"#E1F5EE":"var(--surface)",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:gpsError?"#A32D2D":active?"#1D9E75":"#aaa",flexShrink:0,boxShadow:active&&!gpsError?"0 0 0 3px rgba(29,158,117,.25)":"none"}}/>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,color:active?"#085041":"var(--text2)"}}>{active?"GPS activo — rastreando":"GPS listo"}</div>
-                    <div style={{fontSize:11,color:active?"#0F6E56":"var(--text2)"}}>{active?`${mins}m ${secs}s · ${gpsPts.length} puntos registrados`:"Se activa automáticamente al iniciar"}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":active?"#085041":"var(--text2)"}}>{gpsError?"Error de GPS":active?"GPS activo — rastreando":"GPS listo"}</div>
+                    <div style={{fontSize:11,color:gpsError?"#A32D2D":active?"#0F6E56":"var(--text2)"}}>{gpsError?gpsError:active?`${mins}m ${secs}s · ${gpsPts.length} pts · ${km.toFixed(2)} km reales\`:"Se activa automáticamente al iniciar"}</div>
                   </div>
                 </div>
                 {!active&&<>
