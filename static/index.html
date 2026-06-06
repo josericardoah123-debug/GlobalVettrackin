@@ -710,23 +710,30 @@ function Tecnicos({techs,onAdd,trips}){
 
 // ─── APP EMPLEADO (MÓVIL) ─────────────────────────────────────────────────────
 function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
-  const [tab,setTab]=useState("viaje");
+  const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
   const [km,setKm]=useState(0);
   const [startTime,setStartTime]=useState(null);
   const [elapsed,setElapsed]=useState(0);
   const [clientId,setClientId]=useState("");
+  const [stops,setStops]=useState([]); // [{clientId, equipIds, type, arrivalTime, departureTime}]
+  const [currentStopIdx,setCurrentStopIdx]=useState(0);
   const [equips,setEquips]=useState([]);
   const [type,setType]=useState("entrega");
   const [notes,setNotes]=useState("");
   const [gpsPts,setGpsPts]=useState([]);
   const [gpsError,setGpsError]=useState("");
+  const [stopTimers,setStopTimers]=useState({}); // {stopIdx: {arrival, departure, elapsed}}
+  const [atStop,setAtStop]=useState(false);
   const watchRef=useRef(null);
   const timerRef=useRef(null);
+  const stopTimerRef=useRef(null);
   const myTrips=trips.filter(t=>t.technicianId===user.id);
   const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+  const thisMonth=new Date().toISOString().slice(0,7);
+  const monthTrips=myTrips.filter(t=>t.date.startsWith(thisMonth));
+  const pendingAmt=myTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0);
 
-  // Calculate distance between two GPS points in km (Haversine formula)
   const calcDist=([lat1,lon1],[lat2,lon2])=>{
     const R=6371;
     const dLat=(lat2-lat1)*Math.PI/180;
@@ -737,14 +744,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
 
   useEffect(()=>{
     if(active){
-      // Timer for elapsed display
       timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
-
-      // Real GPS watch — only adds km when actually moving
-      if(!navigator.geolocation){
-        setGpsError("Tu dispositivo no soporta GPS");
-        return;
-      }
+      if(!navigator.geolocation){setGpsError("Tu dispositivo no soporta GPS");return;}
       setGpsError("");
       watchRef.current=navigator.geolocation.watchPosition(
         pos=>{
@@ -753,132 +754,349 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
             if(prev.length===0) return [newPt];
             const lastPt=prev[prev.length-1];
             const dist=calcDist(lastPt,newPt);
-            // Only add point if moved more than 10 meters (avoids GPS drift noise)
-            if(dist>0.05){
-              setKm(k=>+(k+dist).toFixed(2));
-              return [...prev,newPt];
-            }
+            if(dist>0.05){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
             return prev;
           });
         },
-        err=>{
-          if(err.code===1) setGpsError("Permiso de ubicación denegado — actívalo en ajustes");
-          else setGpsError("Error de GPS: "+err.message);
-        },
+        err=>{if(err.code===1)setGpsError("Permiso denegado");else setGpsError("Error GPS");},
         {enableHighAccuracy:true,maximumAge:5000,timeout:15000}
       );
     } else {
       clearInterval(timerRef.current);
-      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+      if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
     }
-    return()=>{
-      clearInterval(timerRef.current);
-      if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-    };
+    return()=>{clearInterval(timerRef.current);if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);};
   },[active]);
 
+  const addStop=()=>{
+    setStops(prev=>[...prev,{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+  };
+
+  const removeStop=idx=>{
+    setStops(prev=>prev.filter((_,i)=>i!==idx));
+  };
+
+  const updateStop=(idx,key,val)=>{
+    setStops(prev=>prev.map((s,i)=>i===idx?{...s,[key]:val}:s));
+  };
+
+  const toggleStopEquip=(idx,eqId)=>{
+    setStops(prev=>prev.map((s,i)=>{
+      if(i!==idx) return s;
+      const equipIds=s.equipIds.includes(eqId)?s.equipIds.filter(e=>e!==eqId):[...s.equipIds,eqId];
+      return {...s,equipIds};
+    }));
+  };
+
+  const openWaze=()=>{
+    const allStops=[...stops.filter(s=>s.clientId)];
+    if(!clientId&&allStops.length===0){alert("Agrega al menos un destino");return;}
+    const destClient=clients.find(c=>c.id===clientId);
+    const waypoints=allStops.map(s=>{
+      const cl=clients.find(c=>c.id===s.clientId);
+      return cl?`${cl.name} ${cl.city} Honduras`:"";
+    }).filter(Boolean);
+    const dest=destClient?`${destClient.name} ${destClient.city} Honduras`:"Honduras";
+    const allDests=[...waypoints,dest].join("/");
+    const url=`https://www.google.com/maps/dir/${allDests}`;
+    window.open(url,'_blank');
+  };
+
+  const arriveAtStop=idx=>{
+    const now=new Date();
+    const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+    setStopTimers(prev=>({...prev,[idx]:{arrival:now,arrivalStr:p2(now),elapsed:0}}));
+    setAtStop(true);
+    stopTimerRef.current=setInterval(()=>{
+      setStopTimers(prev=>({...prev,[idx]:{...prev[idx],elapsed:(prev[idx]?.elapsed||0)+1}}));
+    },1000);
+  };
+
+  const departFromStop=idx=>{
+    clearInterval(stopTimerRef.current);
+    const now=new Date();
+    const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+    setStopTimers(prev=>({...prev,[idx]:{...prev[idx],departure:now,departureStr:p2(now)}}));
+    setAtStop(false);
+    setCurrentStopIdx(idx+1);
+  };
+
   const start=()=>{
-    if(!clientId){alert("Selecciona un cliente primero.");return;}
-    if(!equips.length){alert("Selecciona al menos un equipo.");return;}
-    setActive(true);setKm(0);setElapsed(0);setGpsPts([]);
-    setStartTime(new Date());
+    if(!clientId&&stops.every(s=>!s.clientId)){alert("Agrega al menos un destino");return;}
+    setActive(true);setKm(0);setElapsed(0);setGpsPts([]);setCurrentStopIdx(0);
+    setStartTime(new Date());setTab("activo");
   };
 
   const end=async()=>{
     setActive(false);
+    clearInterval(stopTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
     const client=clients.find(c=>c.id===clientId);
     const finalKm=+km.toFixed(1)||1;
     const firstPt=gpsPts[0]||null;
     const lastPt=gpsPts[gpsPts.length-1]||null;
+    // Build stops with timing
+    const tripStops=stops.filter(s=>s.clientId).map((s,i)=>{
+      const cl=clients.find(c=>c.id===s.clientId);
+      const timer=stopTimers[i]||{};
+      return {
+        label:`${cl?.name||"Parada"} — ${cl?.city||""}`,
+        time:timer.arrivalStr||"",
+        departureTime:timer.departureStr||"",
+        timeSpent:timer.elapsed?Math.round(timer.elapsed/60)+" min":"",
+        lat:lastPt?.[0]||0,lng:lastPt?.[1]||0
+      };
+    });
+    const allEquipIds=[...equips,...stops.flatMap(s=>s.equipIds)];
     await onSaveTrip({
-      technicianId:user.id,clientId,
-      date:now.toISOString().slice(0,10),tripType:type,equipmentIds:equips,
+      technicianId:user.id,clientId:clientId||stops.find(s=>s.clientId)?.clientId,
+      date:now.toISOString().slice(0,10),tripType:type,equipmentIds:[...new Set(allEquipIds)],
       origin:{lat:firstPt?.[0]||0,lng:firstPt?.[1]||0,label:"Punto de origen"},
-      destination:{lat:lastPt?.[0]||0,lng:lastPt?.[1]||0,label:`${client?.name}, ${client?.city}`},
-      stops:[],routePoints:gpsPts,
+      destination:{lat:lastPt?.[0]||0,lng:lastPt?.[1]||0,label:client?`${client.name}, ${client.city}`:"Destino"},
+      stops:tripStops,routePoints:gpsPts,
       startTime:p2(startTime||now),endTime:p2(now),
       km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
       notes:notes||"Viaje completado desde la app móvil."
     });
     setKm(0);setClientId("");setEquips([]);setNotes("");setGpsPts([]);setElapsed(0);
+    setStops([]);setStopTimers({});setCurrentStopIdx(0);setAtStop(false);
     setTab("historial");
   };
 
   const toggle=id=>setEquips(p=>p.includes(id)?p.filter(e=>e!==id):[...p,id]);
   const mins=Math.floor(elapsed/60),secs=elapsed%60;
   const reimb=+(km*rate).toFixed(2);
+  const hora=new Date().getHours();
+  const saludo=hora<12?"¡Buenos días":"hora<18?"¡Buenas tardes":"¡Buenas noches";
 
   return(
-    <div style={{maxWidth:390,margin:"0 auto"}}>
+    <div style={{maxWidth:400,margin:"0 auto"}}>
       <div style={{background:"var(--surface)",borderRadius:28,padding:8,border:"1px solid var(--border)"}}>
         <div style={{background:"var(--card)",borderRadius:22,overflow:"hidden",minHeight:620}}>
-          <div style={{background:"#0C447C",padding:18}}>
+          {/* Header */}
+          <div style={{background:"linear-gradient(135deg,#0C447C,#185FA5)",padding:"18px 18px 14px"}}>
             <div style={{fontSize:18,fontWeight:800,color:"white",letterSpacing:"-0.5px"}}>LabTrack</div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{user.name} · Técnico</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:1}}>{user.name} · {user.role==="admin"?"Admin":"Técnico"}</div>
           </div>
-          <div style={{padding:16}}>
-            {tab==="viaje"&&(
+
+          <div style={{padding:14,overflowY:"auto",maxHeight:520}}>
+
+            {/* INICIO */}
+            {tab==="inicio"&&(
               <div>
-                <div style={{background:gpsError?"#FCEBEB":active?"#E1F5EE":"var(--surface)",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:10,height:10,borderRadius:"50%",background:gpsError?"#A32D2D":active?"#1D9E75":"#aaa",flexShrink:0,boxShadow:active&&!gpsError?"0 0 0 3px rgba(29,158,117,.25)":"none"}}/>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":active?"#085041":"var(--text2)"}}>{gpsError?"Error de GPS":active?"GPS activo — rastreando":"GPS listo"}</div>
-                    <div style={{fontSize:11,color:gpsError?"#A32D2D":active?"#0F6E56":"var(--text2)"}}>{gpsError?gpsError:active?`${mins}m ${secs}s · ${gpsPts.length} pts · ${km.toFixed(2)} km reales`:"Se activa automáticamente al iniciar"}</div>
+                {/* Saludo */}
+                <div style={{background:"linear-gradient(135deg,#E6F1FB,#EEEDFE)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{fontSize:15,fontWeight:700,color:"#0C447C"}}>{hora<12?"¡Buenos días":"hora<18?"¡Buenas tardes":"¡Buenas noches"}, {user.name.split(" ")[0]}! 👋</div>
+                  <div style={{fontSize:12,color:"#185FA5",marginTop:3}}>Listo para tu próximo viaje</div>
+                </div>
+
+                {/* Stats del mes */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+                  <div style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px"}}>
+                    <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em"}}>Km este mes</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"var(--text)",marginTop:3}}>{monthTrips.reduce((s,t)=>s+t.km,0).toFixed(0)}</div>
+                    <div style={{fontSize:11,color:"var(--text2)"}}>{monthTrips.length} viajes</div>
+                  </div>
+                  <div style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px"}}>
+                    <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em"}}>Pendiente</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"#185FA5",marginTop:3}}>L.{fmt(pendingAmt)}</div>
+                    <div style={{fontSize:11,color:"var(--text2)"}}>por reembolsar</div>
                   </div>
                 </div>
-                {!active&&<>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Cliente / destino</label>
-                    <Select value={clientId} onChange={setClientId}><option value="">Seleccionar cliente...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}</Select>
-                  </div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Tipo de visita</label>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                      {["entrega","instalación"].map(t=><button key={t} onClick={()=>setType(t)} style={{padding:9,borderRadius:8,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",fontWeight:type===t?700:400,background:type===t?"#EEEDFE":"var(--surface)",color:type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
-                    </div>
-                  </div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Equipos a llevar</label>
-                    <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:140,overflowY:"auto"}}>
-                      {inventory.filter(e=>e.stock>0).map(eq=>(
-                        <div key={eq.id} onClick={()=>toggle(eq.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:equips.includes(eq.id)?"#E6F1FB":"var(--surface)",border:`1px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`}}>
-                          <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`,background:equips.includes(eq.id)?"#185FA5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{equips.includes(eq.id)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}</div>
-                          <div><div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{eq.name} {eq.model}</div><div style={{fontSize:10,color:"var(--text2)"}}>S/N: {eq.serial} · stock: {eq.stock}</div></div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Notas</label>
-                    <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} placeholder="Observaciones..." style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,resize:"none"}}/>
-                  </div>
-                </>}
-                <div style={{textAlign:"center",padding:"14px 0"}}>
-                  <div style={{fontSize:50,fontWeight:800,color:"var(--text)",lineHeight:1,fontFamily:"'DM Mono',monospace"}}>{km.toFixed(1)}</div>
-                  <div style={{fontSize:12,color:"var(--text2)",marginTop:4}}>km recorridos · GPS automático</div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-                  <button onClick={start} disabled={active} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:13,fontSize:13,fontWeight:700,cursor:active?"default":"pointer",opacity:active?0.35:1}}>▶ Iniciar viaje</button>
-                  <button onClick={end} disabled={!active} style={{background:"#993C1D",color:"white",border:"none",borderRadius:10,padding:13,fontSize:13,fontWeight:700,cursor:!active?"default":"pointer",opacity:!active?0.35:1}}>■ Finalizar viaje</button>
-                </div>
-                <div style={{background:"#EEEDFE",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:22,fontWeight:800,color:"#26215C",marginTop:2,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
-                  <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
-                </div>
-              </div>
-            )}
-            {tab==="historial"&&(
-              <div>
-                <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12}}>Mis viajes ({myTrips.length})</div>
-                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,padding:"20px 0",textAlign:"center"}}>Sin viajes aún</div>}
-                {myTrips.map(t=>{
+
+                {/* Botón iniciar viaje */}
+                <button onClick={()=>setTab("viaje")} style={{width:"100%",background:"linear-gradient(135deg,#0F6E56,#1D9E75)",color:"white",border:"none",borderRadius:14,padding:"16px",fontSize:15,fontWeight:800,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  🚗 Iniciar nuevo viaje
+                </button>
+
+                {/* Últimos viajes */}
+                <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Últimos viajes</div>
+                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,textAlign:"center",padding:"20px 0"}}>Sin viajes aún</div>}
+                {myTrips.slice(0,3).map(t=>{
                   const cl=clients.find(c=>c.id===t.clientId);
-                  return <div key={t.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div><div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{t.date} · {t.km} km · {t.tripType}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:13,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div><div style={{marginTop:3}}><Badge type={t.status}>{t.status}</Badge></div></div></div></div>;
+                  return(
+                    <div key={t.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div>
+                        <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{t.date} · {t.km} km</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontWeight:700,fontSize:12,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div>
+                        <Badge type={t.status}>{t.status}</Badge>
+                      </div>
+                    </div>
+                  );
                 })}
               </div>
             )}
+
+            {/* PLANIFICAR VIAJE */}
+            {tab==="viaje"&&!active&&(
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                  <button onClick={()=>setTab("inicio")} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:20,padding:0}}>←</button>
+                  <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>Planificar viaje</div>
+                </div>
+
+                {/* Destino principal */}
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>🏁 Destino final</label>
+                  <Select value={clientId} onChange={setClientId}><option value="">Seleccionar cliente...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}</Select>
+                </div>
+
+                {/* Paradas */}
+                {stops.length>0&&(
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>📍 Paradas en el camino</label>
+                    {stops.map((stop,idx)=>(
+                      <div key={idx} style={{background:"#FAEEDA",borderRadius:10,padding:"10px 12px",marginBottom:8,border:"1px solid #EF9F27"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                          <span style={{fontSize:12,fontWeight:700,color:"#854F0B"}}>Parada {idx+1}</span>
+                          <button onClick={()=>removeStop(idx)} style={{background:"none",border:"none",cursor:"pointer",color:"#993C1D",fontSize:16,padding:0}}>×</button>
+                        </div>
+                        <Select value={stop.clientId} onChange={v=>updateStop(idx,"clientId",v)}>
+                          <option value="">Seleccionar cliente...</option>
+                          {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
+                        </Select>
+                        <div style={{marginTop:6,display:"flex",gap:4}}>
+                          {["entrega","instalación"].map(t=><button key={t} onClick={()=>updateStop(idx,"type",t)} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid #EF9F27",fontSize:11,cursor:"pointer",background:stop.type===t?"#EF9F27":"transparent",color:stop.type===t?"white":"#854F0B",fontWeight:stop.type===t?700:400}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button onClick={addStop} style={{width:"100%",background:"transparent",border:"1px dashed #EF9F27",color:"#854F0B",borderRadius:10,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:10}}>
+                  + Agregar parada
+                </button>
+
+                {/* Tipo */}
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Tipo de visita final</label>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                    {["entrega","instalación"].map(t=><button key={t} onClick={()=>setType(t)} style={{padding:9,borderRadius:8,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",fontWeight:type===t?700:400,background:type===t?"#EEEDFE":"var(--surface)",color:type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
+                  </div>
+                </div>
+
+                {/* Equipos */}
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>Equipos a llevar</label>
+                  <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:120,overflowY:"auto"}}>
+                    {inventory.filter(e=>e.stock>0).map(eq=>(
+                      <div key={eq.id} onClick={()=>toggle(eq.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:equips.includes(eq.id)?"#E6F1FB":"var(--surface)",border:`1px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`}}>
+                        <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${equips.includes(eq.id)?"#185FA5":"var(--border)"}`,background:equips.includes(eq.id)?"#185FA5":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{equips.includes(eq.id)&&<span style={{color:"white",fontSize:11,fontWeight:700}}>✓</span>}</div>
+                        <div><div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{eq.name} {eq.model}</div><div style={{fontSize:10,color:"var(--text2)"}}>S/N: {eq.serial}</div></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notas */}
+                <div style={{marginBottom:12}}>
+                  <label style={{fontSize:11,color:"var(--text2)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>Notas</label>
+                  <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} placeholder="Observaciones..." style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,resize:"none"}}/>
+                </div>
+
+                {/* Botones */}
+                <button onClick={openWaze} style={{width:"100%",background:"#1D9E75",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  🗺️ Ver mejor ruta en Google Maps
+                </button>
+                <button onClick={start} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                  ▶ Iniciar viaje y GPS
+                </button>
+              </div>
+            )}
+
+            {/* VIAJE ACTIVO */}
+            {tab==="activo"&&active&&(
+              <div>
+                {/* GPS Status */}
+                <div style={{background:gpsError?"#FCEBEB":"#E1F5EE",borderRadius:10,padding:"10px 13px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:gpsError?"#A32D2D":"#1D9E75",flexShrink:0,boxShadow:gpsError?"none":"0 0 0 3px rgba(29,158,117,.25)"}}/>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:gpsError?"#A32D2D":"#085041"}}>{gpsError?"Error de GPS":"GPS activo — rastreando"}</div>
+                    <div style={{fontSize:11,color:gpsError?"#A32D2D":"#0F6E56"}}>{gpsError||`${mins}m ${secs}s · ${gpsPts.length} puntos`}</div>
+                  </div>
+                </div>
+
+                {/* Km grande */}
+                <div style={{textAlign:"center",padding:"10px 0 14px"}}>
+                  <div style={{fontSize:52,fontWeight:800,color:"var(--text)",lineHeight:1,fontFamily:"'DM Mono',monospace"}}>{km.toFixed(1)}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:4}}>km recorridos</div>
+                </div>
+
+                {/* Paradas activas */}
+                {stops.filter(s=>s.clientId).length>0&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Paradas del viaje</div>
+                    {stops.filter(s=>s.clientId).map((stop,idx)=>{
+                      const cl=clients.find(c=>c.id===stop.clientId);
+                      const timer=stopTimers[idx];
+                      const done=timer?.departureStr;
+                      const inProgress=timer?.arrivalStr&&!done;
+                      return(
+                        <div key={idx} style={{background:done?"#EAF3DE":inProgress?"#FAEEDA":"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${done?"#639922":inProgress?"#EF9F27":"var(--border)"}`}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div>
+                              <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>📍 {cl?.name}</div>
+                              <div style={{fontSize:11,color:"var(--text2)"}}>{stop.type} · {cl?.city}</div>
+                              {inProgress&&<div style={{fontSize:11,color:"#854F0B",marginTop:2}}>⏱ Tiempo en parada: {Math.floor((stopTimers[idx]?.elapsed||0)/60)}m {(stopTimers[idx]?.elapsed||0)%60}s</div>}
+                              {done&&<div style={{fontSize:11,color:"#3B6D11",marginTop:2}}>✓ Llegada: {timer.arrivalStr} · Salida: {timer.departureStr} · {Math.round((timer.departure-timer.arrival)/60000)} min</div>}
+                            </div>
+                            {!done&&!inProgress&&idx===currentStopIdx&&(
+                              <button onClick={()=>arriveAtStop(idx)} style={{background:"#EF9F27",color:"white",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Llegué</button>
+                            )}
+                            {inProgress&&(
+                              <button onClick={()=>departFromStop(idx)} style={{background:"#185FA5",color:"white",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Salir</button>
+                            )}
+                            {done&&<span style={{fontSize:16}}>✅</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Reembolso */}
+                <div style={{background:"#EEEDFE",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:22,fontWeight:800,color:"#26215C",marginTop:2,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
+                  <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
+                </div>
+
+                <button onClick={end} style={{width:"100%",background:"#993C1D",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                  ■ Finalizar viaje
+                </button>
+              </div>
+            )}
+
+            {/* HISTORIAL */}
+            {tab==="historial"&&(
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:12}}>Mis viajes ({myTrips.length})</div>
+                {myTrips.length===0&&<div style={{color:"var(--text2)",fontSize:13,padding:"20px 0",textAlign:"center"}}>Sin viajes aún</div>}
+                {myTrips.map(t=>{
+                  const cl=clients.find(c=>c.id===t.clientId);
+                  return(
+                    <div key={t.id} style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl?.name||"—"}</div>
+                          <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{t.date} · {t.km} km · {t.tripType}</div>
+                          {(t.stops||[]).length>0&&<div style={{fontSize:11,color:"#854F0B",marginTop:1}}>📍 {t.stops.length} parada{t.stops.length!==1?"s":""}</div>}
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontWeight:800,fontSize:13,color:"#185FA5"}}>L.{fmt(t.reimbursement)}</div>
+                          <div style={{marginTop:3}}><Badge type={t.status}>{t.status}</Badge></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* PERFIL */}
             {tab==="perfil"&&(
               <div style={{padding:"8px 0"}}>
                 <div style={{textAlign:"center",padding:"16px 0 20px"}}>
@@ -888,18 +1106,20 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                   <div style={{fontSize:12,background:"#E6F1FB",color:"#185FA5",display:"inline-block",padding:"3px 12px",borderRadius:20,marginTop:6,fontWeight:600}}>{user.role==="admin"?"Administrador":"Técnico"}</div>
                 </div>
                 <div style={{background:"var(--surface)",borderRadius:12,padding:14}}>
-                  {[["Total viajes",myTrips.length],["Total km",`${myTrips.reduce((s,t)=>s+t.km,0)} km`],["Pendiente",`L.${fmt(myTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0))}`],["Reembolsado",`L.${fmt(myTrips.filter(t=>t.status==="reembolsado").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v],i,a)=>(
+                  {[["Total viajes",myTrips.length],["Total km",`${myTrips.reduce((s,t)=>s+t.km,0)} km`],["Este mes",`${monthTrips.length} viajes · ${monthTrips.reduce((s,t)=>s+t.km,0)} km`],["Pendiente",`L.${fmt(pendingAmt)}`],["Reembolsado",`L.${fmt(myTrips.filter(t=>t.status==="reembolsado").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v],i,a)=>(
                     <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<a.length-1?"1px solid var(--border)":"none",fontSize:13}}><span style={{color:"var(--text2)"}}>{l}</span><span style={{fontWeight:700,color:"var(--text)"}}>{v}</span></div>
                   ))}
                 </div>
               </div>
             )}
           </div>
+
+          {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
-            {[{k:"viaje",i:"🚗",l:"Viaje"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
-              <button key={t.k} onClick={()=>setTab(t.k)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:tab===t.k?"#185FA5":"var(--text2)"}}>
-                <span style={{fontSize:22}}>{t.i}</span>
-                <span style={{fontSize:10,fontWeight:tab===t.k?700:400}}>{t.l}</span>
+            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
+              <button key={t.k} onClick={()=>{if(t.k==="viaje"&&active){setTab("activo");return;}setTab(t.k);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:(tab===t.k||(t.k==="viaje"&&tab==="activo"))?"#185FA5":"var(--text2)"}}>
+                <span style={{fontSize:20}}>{t.i}</span>
+                <span style={{fontSize:9,fontWeight:(tab===t.k||(t.k==="viaje"&&tab==="activo"))?700:400}}>{t.l}</span>
               </button>
             ))}
           </div>
