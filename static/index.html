@@ -283,7 +283,7 @@ function SvgMap({trip,height=320}){
 }
 
 // ─── TRIP DETAIL ──────────────────────────────────────────────────────────────
-function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey}){
+function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuelGasPrice=95,fuelDieselPrice=85}){
   const tech=techs.find(t=>t.id===trip.technicianId);
   const client=clients.find(c=>c.id===trip.clientId);
   const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
@@ -304,8 +304,31 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey}){
           <div style={{fontSize:12,color:"var(--text2)"}}>{client?.contact}</div>
         </div>
       </div>
+      {/* Fuel calculation */}
+      {(()=>{
+        const tech=techs.find(t=>t.id===trip.technicianId);
+        const rendimiento=tech?.rendimiento||12;
+        const tipoComb=tech?.tipoCombustible||"gasolina";
+        const litros=trip.km/rendimiento;
+        const precioComb=tipoComb==="diesel"?fuelDieselPrice:fuelGasPrice;
+        const costoCombs=litros*precioComb;
+        return(
+          <div style={{background:"#FFF9F0",borderRadius:10,padding:"10px 14px",marginBottom:12,border:"1px solid #EF9F27"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#854F0B",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:6}}>⛽ Cálculo de combustible</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:12}}>
+              <div><div style={{color:"#854F0B"}}>Rendimiento</div><div style={{fontWeight:700,color:"#5C3209"}}>{rendimiento} km/L</div></div>
+              <div><div style={{color:"#854F0B"}}>Litros usados</div><div style={{fontWeight:700,color:"#5C3209"}}>{litros.toFixed(1)} L</div></div>
+              <div><div style={{color:"#854F0B"}}>Costo combustible</div><div style={{fontWeight:700,color:"#5C3209"}}>L.{fmt(costoCombs)}</div></div>
+            </div>
+            <div style={{marginTop:8,background:"#EF9F27",borderRadius:6,padding:"6px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:12,color:"white",fontWeight:600}}>Total a reembolsar (km + combustible)</span>
+              <span style={{fontSize:15,color:"white",fontWeight:800}}>L.{fmt(trip.reimbursement+costoCombs)}</span>
+            </div>
+          </div>
+        );
+      })()}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
-        {[{l:"Fecha",v:trip.date},{l:"Distancia",v:`${trip.km} km`},{l:"Reembolso",v:`L. ${fmt(trip.reimbursement)}`},{l:"Tipo",v:trip.tripType}].map(m=>(
+        {[{l:"Fecha",v:trip.date},{l:"Distancia",v:`${trip.km} km`},{l:"Reembolso km",v:`L. ${fmt(trip.reimbursement)}`},{l:"Tipo",v:trip.tripType}].map(m=>(
           <div key={m.l} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px"}}>
             <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em"}}>{m.l}</div>
             <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginTop:4}}>{m.v}</div>
@@ -706,13 +729,13 @@ function Clientes({clients,onAdd,trips,inventory,mapsKey}){
 // ─── TECNICOS ────────────────────────────────────────────────────────────────
 function Tecnicos({techs,onAdd,trips}){
   const [show,setShow]=useState(false);
-  const [f,setF]=useState({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician"});
+  const [f,setF]=useState({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician",rendimiento:12,tipoCombustible:"gasolina"});
   const colors=["purple","teal","amber","blue","coral","green"];
   const set=k=>v=>setF(p=>({...p,[k]:v}));
   const add=async()=>{
     if(!f.name||!f.email){alert("Nombre y correo son requeridos");return;}
     await onAdd(f);
-    setF({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician"});
+    setF({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician",rendimiento:12,tipoCombustible:"gasolina"});
     setShow(false);
   };
   return(
@@ -755,12 +778,14 @@ function Tecnicos({techs,onAdd,trips}){
             <Field label="Correo electrónico"><Input value={f.email} onChange={set("email")} placeholder="correo@empresa.hn" type="email"/></Field>
             <Field label="Teléfono"><Input value={f.phone} onChange={set("phone")} placeholder="+504 9xxx-xxxx"/></Field>
             <Field label="Contraseña inicial"><Input value={f.password} onChange={set("password")} type="password"/></Field>
-            <Field label="Rol"><Select value={f.role} onChange={set("role")}><option value="technician">Técnico</option><option value="admin">Administrador</option></Select></Field>
+            <Field label="Rol"><Select value={f.role} onChange={set("role")}><option value="technician">Técnico</option><option value="ventas">Ventas</option><option value="admin">Administrador</option></Select></Field>
             <Field label="Color de avatar" span={2}>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
                 {colors.map(c=><div key={c} onClick={()=>set("color")(c)} style={{width:34,height:34,borderRadius:"50%",background:COLORS[c].bg,border:`3px solid ${f.color===c?COLORS[c].border:"transparent"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:16,height:16,borderRadius:"50%",background:COLORS[c].border}}/></div>)}
               </div>
             </Field>
+            <Field label="Tipo de combustible"><Select value={f.tipoCombustible||"gasolina"} onChange={set("tipoCombustible")}><option value="gasolina">Gasolina</option><option value="diesel">Diesel</option></Select></Field>
+            <Field label="Rendimiento (km/litro)"><Input value={f.rendimiento||12} onChange={set("rendimiento")} type="number" placeholder="Ej: 12"/></Field>
           </div>
           <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar técnico</Btn></div>
         </Modal>
@@ -777,7 +802,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const [startTime,setStartTime]=useState(null);
   const [elapsed,setElapsed]=useState(0);
   // Destinations: [{clientId, equipIds, type, notes}]
-  const [destinations,setDestinations]=useState([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+  const defaultType=user?.role==="ventas"?"visita":user?.role==="technician"?"mantenimiento":"entrega";
+  const [destinations,setDestinations]=useState([{clientId:"",equipIds:[],type:user?.role==="ventas"?"visita":"mantenimiento",notes:""}]);
   const [gpsPts,setGpsPts]=useState([]);
   const [gpsError,setGpsError]=useState("");
   const [currentDestIdx,setCurrentDestIdx]=useState(0);
@@ -826,19 +852,22 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   };
 
   // Open Google Maps with all destinations in order
-  const openGoogleMaps=(fromIdx=0)=>{
+  const openGoogleMaps=(fromIdx=0,userLat=null,userLng=null)=>{
     const validDests=destinations.filter(d=>d.clientId);
     if(validDests.length===0) return;
     const dest=validDests[fromIdx];
     const cl=clients.find(c=>c.id===dest?.clientId);
     if(!cl) return;
+    // Use current GPS location as origin if available
+    const originStr=userLat&&userLng
+      ?`${userLat},${userLng}`
+      :""; // Empty = Google Maps uses current location
     const remaining=validDests.slice(fromIdx+1);
     if(remaining.length===0){
-      // Just navigate to this one
-      const url=cl.lat?`https://www.google.com/maps/dir/?api=1&destination=${cl.lat},${cl.lng}&travelmode=driving`:`https://www.google.com/maps/search/${encodeURIComponent(cl.name+" "+cl.city+" Honduras")}`;
+      const destStr=cl.lat?`${cl.lat},${cl.lng}`:encodeURIComponent(`${cl.name} ${cl.city} Honduras`);
+      const url=`https://www.google.com/maps/dir/?api=1${originStr?`&origin=${originStr}`:""}&destination=${destStr}&travelmode=driving`;
       window.open(url,'_blank');
     } else {
-      // Multi-stop route
       const waypoints=remaining.slice(0,-1).map(d=>{
         const c=clients.find(cl=>cl.id===d.clientId);
         return c?.lat?`${c.lat},${c.lng}`:encodeURIComponent(`${c?.name} ${c?.city} Honduras`);
@@ -846,9 +875,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
       const finalDest=remaining[remaining.length-1];
       const finalCl=clients.find(c=>c.id===finalDest.clientId);
       const destStr=finalCl?.lat?`${finalCl.lat},${finalCl.lng}`:encodeURIComponent(`${finalCl?.name} ${finalCl?.city} Honduras`);
-      const originStr=cl.lat?`${cl.lat},${cl.lng}`:encodeURIComponent(`${cl.name} ${cl.city} Honduras`);
       const waypointStr=waypoints.length>0?`&waypoints=${waypoints.join("|")}`:"";
-      const url=`https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}${waypointStr}&travelmode=driving`;
+      const url=`https://www.google.com/maps/dir/?api=1${originStr?`&origin=${originStr}`:""}&destination=${destStr}${waypointStr}&travelmode=driving`;
       window.open(url,'_blank');
     }
   };
@@ -888,7 +916,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   },[active]);
 
   const addDestination=()=>{
-    setDestinations(prev=>[...prev,{clientId:"",equipIds:[],type:"entrega",notes:""}]);
+    const defaultType=user.role==="ventas"?"visita":user.role==="technician"?"mantenimiento":"entrega";
+    setDestinations(prev=>[...prev,{clientId:"",equipIds:[],type:defaultType,notes:""}]);
   };
   const removeDestination=idx=>{
     if(destinations.length===1) return;
@@ -935,7 +964,12 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
     const validDests=destinations.filter(d=>d.clientId);
     setCurrentDestIdx(nextIdx);
     // If there's a next destination, open Maps
-    if(nextIdx<validDests.length) openGoogleMaps(nextIdx);
+    if(nextIdx<validDests.length){
+      navigator.geolocation?.getCurrentPosition(
+        pos=>openGoogleMaps(nextIdx,pos.coords.latitude,pos.coords.longitude),
+        ()=>openGoogleMaps(nextIdx)
+      );
+    }
   };
 
   const end=async()=>{
@@ -1051,9 +1085,13 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                         <option value="">Seleccionar cliente...</option>
                         {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
                       </Select>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
-                        {["entrega","instalación"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"6px",borderRadius:7,border:"1px solid var(--border)",fontSize:11,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#EEEDFE":"transparent",color:dest.type===t?"#3C3489":"var(--text2)"}}>{t==="entrega"?"📦 Entrega":"🔧 Instalación"}</button>)}
-                      </div>
+                      {user.role==="ventas"?(
+                        <div style={{marginTop:6,background:"#E6F1FB",borderRadius:7,padding:"6px 10px",fontSize:12,color:"#185FA5",fontWeight:600}}>🤝 Visita comercial (autoseleccionado)</div>
+                      ):(
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:6}}>
+                          {["mantenimiento","preventivo","instalación"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"5px 3px",borderRadius:7,border:"1px solid var(--border)",fontSize:10,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#EEEDFE":"transparent",color:dest.type===t?"#3C3489":"var(--text2)",textAlign:"center"}}>{t==="mantenimiento"?"🔧 Mant.":t==="preventivo"?"🔍 Prev.":"⚙️ Inst."}</button>)}
+                        </div>
+                      )}
                       {/* Equipment selector */}
                       <div style={{marginTop:6,maxHeight:90,overflowY:"auto"}}>
                         {inventory.filter(e=>e.stock>0).map(eq=>(
@@ -1156,9 +1194,13 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
                   );
                 })}
                 <button onClick={()=>{
+                  // Get current position first, then open Maps
+                  navigator.geolocation?.getCurrentPosition(
+                    pos=>openGoogleMaps(0,pos.coords.latitude,pos.coords.longitude),
+                    ()=>openGoogleMaps(0)
+                  );
                   setActive(true);setKm(0);setElapsed(0);setGpsPts([]);
                   setCurrentDestIdx(0);setStartTime(new Date());setTab("activo");
-                  openGoogleMaps(0);
                 }} style={{width:"100%",background:"#0F6E56",color:"white",border:"none",borderRadius:14,padding:"14px",fontSize:14,fontWeight:800,cursor:"pointer",marginTop:12}}>
                   ▶ ¡Iniciar viaje!
                 </button>
@@ -1288,10 +1330,12 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
 }
 
 // ─── AJUSTES ──────────────────────────────────────────────────────────────────
-function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompany,dark,setDark}){
+function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompany,dark,setDark,fuelGasPrice:initGas=95,fuelDieselPrice:initDiesel=85,onSaveFuelPrices}){
   const [rateVal,setRateVal]=useState(rate);
   const [keyVal,setKeyVal]=useState(mapsKey||"");
   const [nameVal,setNameVal]=useState(companyName||"");
+  const [fuelGasPrice,setFuelGasPrice]=useState(initGas);
+  const [fuelDieselPrice,setFuelDieselPrice]=useState(initDiesel);
   useEffect(()=>{setRateVal(rate);},[rate]);
   return(
     <div style={{maxWidth:560,display:"flex",flexDirection:"column",gap:16}}>
@@ -1335,6 +1379,18 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
         </div>
       </div>
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>⛽ Precio del combustible</div>
+        <div style={{fontSize:13,color:"var(--text2)",marginBottom:10}}>Se usa para calcular el reembolso de gasolina según el rendimiento de cada vehículo</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><label style={{fontSize:12,color:"var(--text2)",display:"block",marginBottom:4}}>Gasolina (L. por litro)</label><input type="number" value={fuelGasPrice} onChange={e=>setFuelGasPrice(+e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:14,fontWeight:700}}/></div>
+          <div><label style={{fontSize:12,color:"var(--text2)",display:"block",marginBottom:4}}>Diesel (L. por litro)</label><input type="number" value={fuelDieselPrice} onChange={e=>setFuelDieselPrice(+e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:14,fontWeight:700}}/></div>
+        </div>
+        <div style={{marginTop:10,background:"#E6F1FB",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#185FA5"}}>
+          Ejemplo: Técnico con rendimiento 12 km/L hace 100 km → consume 8.33 L → reembolso gasolina: <strong>L.{fmt((100/12)*fuelGasPrice)}</strong>
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}><Btn variant="primary" onClick={()=>{onSaveFuelPrices(fuelGasPrice,fuelDieselPrice);}}>Guardar precios</Btn></div>
+      </div>
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
         <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:8}}>Acerca de LabTrack</div>
         <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8}}>Versión 2.0 · Plataforma de operaciones de campo<br/>Diseñado para empresas de equipos de laboratorio en Honduras 🇭🇳<br/><br/><span style={{color:"#1D9E75",fontWeight:600}}>✓ Conectado a base de datos en vivo</span></div>
       </div>
@@ -1346,7 +1402,7 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
 function App(){
   const [user,setUser]=useState(()=>LS.get("lt_user",null));
   const [dark,setDark]=useState(false);
-  const [page,setPage]=useState("dashboard");
+  const [page,setPage]=useState(()=>LS.get("lt_user",null)?.role==="admin"?"dashboard":"app");
   const [techs,setTechs]=useState([]);
   const [inventory,setInventory]=useState([]);
   const [clients,setClients]=useState([]);
@@ -1354,6 +1410,8 @@ function App(){
   const [rate,setRate]=useState(5.0);
   const [mapsKey,setMapsKey]=useState("");
   const [companyName,setCompanyName]=useState("LabTrack");
+  const [fuelGasPrice,setFuelGasPrice]=useState(95);
+  const [fuelDieselPrice,setFuelDieselPrice]=useState(85);
   const [viewTrip,setViewTrip]=useState(null);
   const [loading,setLoading]=useState(true);
   const [toast,setToast]=useState(null);
@@ -1368,13 +1426,15 @@ function App(){
       if(s.rate_per_km) setRate(parseFloat(s.rate_per_km));
       if(s.maps_api_key) setMapsKey(s.maps_api_key);
       if(s.company_name) setCompanyName(s.company_name);
+      if(s.fuel_gas_price) setFuelGasPrice(parseFloat(s.fuel_gas_price));
+      if(s.fuel_diesel_price) setFuelDieselPrice(parseFloat(s.fuel_diesel_price));
     }catch(e){showToast("No se pudo conectar al servidor","error");}
     setLoading(false);
   };
 
   useEffect(()=>{if(user) loadAll();},[user]);
 
-  const handleLogin=u=>{LS.set("lt_user",u);setUser(u);};
+  const handleLogin=u=>{LS.set("lt_user",u);setUser(u);setPage(u.role==="admin"?"dashboard":"app");};
   const handleLogout=()=>{LS.set("lt_user",null);setUser(null);setPage("dashboard");};
 
   const approveTrip=async(id)=>{
@@ -1385,6 +1445,7 @@ function App(){
   const saveRate=async v=>{await API.post("/api/settings",{rate_per_km:v});setRate(v);showToast("Tasa guardada ✓");};
   const saveMapsKey=async v=>{await API.post("/api/settings",{maps_api_key:v});setMapsKey(v);showToast("API Key guardada ✓");};
   const saveCompany=async v=>{await API.post("/api/settings",{company_name:v});setCompanyName(v);showToast("Nombre guardado ✓");};
+  const saveFuelPrices=async(gas,diesel)=>{await API.post("/api/settings",{fuel_gas_price:gas,fuel_diesel_price:diesel});setFuelGasPrice(gas);setFuelDieselPrice(diesel);showToast("Precios de combustible guardados ✓");};
   const addTech=async d=>{const t=await API.post("/api/technicians",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
   const addInventory=async d=>{const eq=await API.post("/api/inventory",d);setInventory(p=>[...p,eq]);showToast("Equipo agregado ✓");};
   const addClient=async d=>{const c=await API.post("/api/clients",d);setClients(p=>[...p,c]);showToast("Cliente agregado ✓");};
@@ -1463,12 +1524,12 @@ function App(){
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey}/>}
-            {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark}/>}
+            {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onSaveFuelPrices={saveFuelPrices}/>}
           </>}
         </div>
       </div>
 
-      {viewTrip&&<TripDetail trip={viewTrip} techs={techs} clients={clients} inventory={inventory} onClose={()=>setViewTrip(null)} onApprove={approveTrip} mapsKey={mapsKey}/>}
+      {viewTrip&&<TripDetail trip={viewTrip} techs={techs} clients={clients} inventory={inventory} onClose={()=>setViewTrip(null)} onApprove={approveTrip} mapsKey={mapsKey} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
       {toast&&<div style={{position:"fixed",bottom:24,right:24,background:toast.type==="error"?"#A32D2D":"#0F6E56",color:"white",padding:"12px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.2)"}}>{toast.msg}</div>}
     </div>
   );

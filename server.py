@@ -34,6 +34,8 @@ def init_db():
             phone TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'available',
             current_trip_id TEXT,
+            rendimiento REAL DEFAULT 12,
+            tipo_combustible TEXT DEFAULT 'gasolina',
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS inventory (
@@ -273,9 +275,10 @@ def add_tech():
     initials = (parts[0][0]+(parts[1][0] if len(parts)>1 else "")).upper()
     tid = "t"+uid()
     with get_db() as db:
-        db.execute("INSERT INTO users (id,name,email,password_hash,role,color,phone,status) VALUES (?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO users (id,name,email,password_hash,role,color,phone,status,rendimiento,tipo_combustible) VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (tid, name, d.get("email","").lower(), hash_pw(d.get("password","tech123")),
-                    d.get("role","technician"), d.get("color","purple"), d.get("phone",""), "available"))
+                    d.get("role","technician"), d.get("color","purple"), d.get("phone",""), "available",
+                    float(d.get("rendimiento",12)), d.get("tipoCombustible","gasolina")))
         db.commit()
         return jsonify(row2dict(db.execute("SELECT * FROM users WHERE id=?", (tid,)).fetchone()))
 
