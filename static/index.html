@@ -1182,6 +1182,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   const [atDest,setAtDest]=useState(false);
   const [reportModal,setReportModal]=useState(null); // {destIdx, client, arrivalTime}
   const [reportData,setReportData]=useState({}); // keyed by destIdx
+  const [lastReportId,setLastReportId]=useState(null);
+  const [lastReportNum,setLastReportNum]=useState(null);
   const [orderMode,setOrderMode]=useState(null); // null | "ask" | "manual" | "auto_ask" | "done"
   const [orderedDests,setOrderedDests]=useState([]);
   const watchRef=useRef(null);
@@ -1379,6 +1381,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     // Collect all report IDs from this trip
     const tripReports=Object.values(reportData);
     const firstReport=tripReports[0];
+    // Use lastReportId as fallback
+    const finalReportId=lastReportId||firstReport?.reportId||null;
+    const finalReportNum=lastReportNum||firstReport?.reportNum||null;
     const savedTrip=await onSaveTrip({
       technicianId:user.id,clientId:mainDest?.clientId||validDests[0]?.clientId,
       date:now.toISOString().slice(0,10),
@@ -1390,11 +1395,11 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       startTime:p2(startTime||now),endTime:p2(now),
       km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
       notes:validDests.map(d=>d.notes).filter(Boolean).join(" | ")||"Viaje completado.",
-      reportId:firstReport?.reportId||null,
-      reportNum:firstReport?.reportNum||null
+      reportId:finalReportId,
+      reportNum:finalReportNum
     });
     setKm(0);setDestinations([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
-    setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);
+    setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);setLastReportId(null);setLastReportNum(null);setReportData({});
     setAtDest(false);setOrderMode(null);setStartTime(null);
     setTab("historial");
   };
@@ -1733,6 +1738,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
             inventory={inventory}
             onSave={(data)=>{
               setReportData(prev=>({...prev,[reportModal.destIdx]:data}));
+              if(data.reportId) setLastReportId(data.reportId);
+              if(data.reportNum) setLastReportNum(data.reportNum);
               confirmDepart(reportModal.destIdx);
             }}
             onClose={()=>setReportModal(null)}
