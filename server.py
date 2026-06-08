@@ -2,7 +2,7 @@
 """
 LabTrack Backend — PostgreSQL version
 """
-import os, json, uuid, hashlib
+import os, json, uuid, hashlib, sqlite3
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime
 
