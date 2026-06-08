@@ -795,6 +795,326 @@ function Tecnicos({techs,onAdd,trips}){
 }
 
 // ─── APP EMPLEADO (MÓVIL) ─────────────────────────────────────────────────────
+
+// ─── VISIT REPORT MODAL ──────────────────────────────────────────────────────
+function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
+  const [marca,setMarca]=useState("");
+  const [modelo,setModelo]=useState("");
+  const [serie,setSerie]=useState("");
+  const [condicion,setCondicion]=useState("");
+  const [reparaciones,setReparaciones]=useState("");
+  const [repuestos,setRepuestos]=useState("");
+  const [calibracion,setCalibracion]=useState(null); // true/false/null
+  const [controlCalidad,setControlCalidad]=useState(null);
+  const [signed,setSigned]=useState(false);
+  const [sigTime,setSigTime]=useState("");
+  const canvasRef=useRef(null);
+  const drawingRef=useRef(false);
+  const sigLockedRef=useRef(false);
+
+  const now=new Date();
+  const dias=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+  const meses=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const fechaStr=`${dias[now.getDay()]}, ${now.getDate()} de ${meses[now.getMonth()]} de ${now.getFullYear()}`;
+  
+  // Generate report number
+  const year=now.getFullYear();
+  const month=String(now.getMonth()+1).padStart(2,"0");
+  const day=String(now.getDate()).padStart(2,"0");
+  const seq=Math.floor(Math.random()*99)+1;
+  const reportNum=`LT-${year}${month}-${String(seq).padStart(3,"0")}`;
+
+  const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+
+  // Canvas drawing
+  useEffect(()=>{
+    const canvas=canvasRef.current;
+    if(!canvas) return;
+    const ctx=canvas.getContext("2d");
+    ctx.strokeStyle="#0F6E56";
+    ctx.lineWidth=2.2;
+    ctx.lineCap="round";
+    ctx.lineJoin="round";
+  },[]);
+
+  const getPos=(canvas,e)=>{
+    const r=canvas.getBoundingClientRect();
+    const scaleX=canvas.width/r.width;
+    const scaleY=canvas.height/r.height;
+    if(e.touches) return {x:(e.touches[0].clientX-r.left)*scaleX,y:(e.touches[0].clientY-r.top)*scaleY};
+    return {x:(e.clientX-r.left)*scaleX,y:(e.clientY-r.top)*scaleY};
+  };
+
+  const startDraw=e=>{
+    if(sigLockedRef.current) return;
+    e.preventDefault();
+    drawingRef.current=true;
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext("2d");
+    const p=getPos(canvas,e);
+    ctx.beginPath();ctx.moveTo(p.x,p.y);
+    if(!signed){
+      const ts=p2(new Date());
+      setSigned(true);setSigTime(ts);
+    }
+  };
+
+  const draw=e=>{
+    if(!drawingRef.current||sigLockedRef.current) return;
+    e.preventDefault();
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext("2d");
+    const p=getPos(canvas,e);
+    ctx.lineTo(p.x,p.y);ctx.stroke();
+  };
+
+  const endDraw=()=>{
+    drawingRef.current=false;
+    if(signed) sigLockedRef.current=true;
+  };
+
+  const clearSig=()=>{
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    setSigned(false);setSigTime("");
+    sigLockedRef.current=false;
+  };
+
+  const handleSave=()=>{
+    const data={
+      reportNum,fecha:fechaStr,tecnico:user.name,cliente:client?.name,
+      marca,modelo,serie,condicion,reparaciones,repuestos,
+      calibracion,controlCalidad,
+      horaLlegada:arrivalTime,horaSalida:sigTime||p2(new Date()),
+      signed,sigTime
+    };
+    onSave(data);
+  };
+
+  const handleDownloadPDF=()=>{
+    const reportHTML=`
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<title>Reporte ${reportNum}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;padding:20px;font-size:13px;color:#222;}
+  .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0F6E56;padding-bottom:12px;margin-bottom:16px;}
+  .logo{display:flex;align-items:center;gap:10px;}
+  .logo img{height:50px;}
+  .company-info{font-size:11px;color:#555;}
+  .report-num{background:#E1F5EE;color:#0F6E56;padding:5px 12px;border-radius:20px;font-weight:700;font-size:13px;}
+  h2{font-size:16px;color:#0F6E56;margin-bottom:4px;}
+  .section{border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:12px;}
+  .section-title{font-size:11px;font-weight:700;text-transform:uppercase;color:#555;letter-spacing:0.5px;margin-bottom:10px;}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .grid-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;}
+  .field{margin-bottom:4px;}
+  .field-label{font-size:10px;color:#777;margin-bottom:2px;}
+  .field-value{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px 8px;font-size:13px;font-weight:500;min-height:30px;}
+  .field-value.auto{color:#0F6E56;}
+  textarea-like{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px 8px;font-size:12px;min-height:55px;display:block;width:100%;white-space:pre-wrap;}
+  .check-section{display:flex;gap:40px;}
+  .check-group label{font-size:11px;margin-bottom:6px;display:block;font-weight:600;}
+  .check-row{display:flex;gap:16px;}
+  .sig-box{border:1px dashed #0F6E56;border-radius:8px;padding:8px;text-align:center;min-height:100px;position:relative;}
+  .sig-img{max-width:100%;max-height:80px;}
+  .footer{text-align:center;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px;margin-top:16px;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">
+    <img src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" alt="DIPRODI"/>
+    <div>
+      <div style="font-weight:700;font-size:15px;color:#0F6E56;">DIPRODI</div>
+      <div class="company-info">Reporte de visita técnica</div>
+    </div>
+  </div>
+  <div class="report-num">${reportNum}</div>
+</div>
+
+<div class="section">
+  <div class="section-title">Número de reporte</div>
+  <div class="grid-4">
+    <div class="field"><div class="field-label">Número</div><div class="field-value auto">${reportNum}</div></div>
+    <div class="field"><div class="field-label">Año</div><div class="field-value auto">${year}</div></div>
+    <div class="field"><div class="field-label">Mes</div><div class="field-value auto">${month}</div></div>
+    <div class="field"><div class="field-label">Secuencia</div><div class="field-value auto">${seq}</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Técnico y cliente</div>
+  <div class="grid-2">
+    <div class="field"><div class="field-label">Técnico</div><div class="field-value auto">${user.name}</div></div>
+    <div class="field"><div class="field-label">Cliente</div><div class="field-value auto">${client?.name||""}</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Equipo revisado</div>
+  <div class="grid-3">
+    <div class="field"><div class="field-label">Marca</div><div class="field-value">${marca||"—"}</div></div>
+    <div class="field"><div class="field-label">Modelo</div><div class="field-value">${modelo||"—"}</div></div>
+    <div class="field"><div class="field-label">No. de serie</div><div class="field-value">${serie||"—"}</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Horario</div>
+  <div class="grid-3">
+    <div class="field"><div class="field-label">Fecha</div><div class="field-value auto">${fechaStr}</div></div>
+    <div class="field"><div class="field-label">Hora de llegada</div><div class="field-value auto">${arrivalTime}</div></div>
+    <div class="field"><div class="field-label">Hora de salida</div><div class="field-value auto">${sigTime||"—"}</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Detalle de la visita</div>
+  <div class="field" style="margin-bottom:10px;"><div class="field-label">Condición del equipo</div><div class="textarea-like" style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px 8px;font-size:12px;min-height:50px;">${condicion||"—"}</div></div>
+  <div class="field" style="margin-bottom:10px;"><div class="field-label">Reparaciones efectuadas</div><div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px 8px;font-size:12px;min-height:60px;">${reparaciones||"—"}</div></div>
+  <div class="field"><div class="field-label">Repuestos utilizados</div><div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px 8px;font-size:12px;min-height:40px;">${repuestos||"—"}</div></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Control de calidad</div>
+  <div class="check-section">
+    <div class="check-group"><label>Calibración</label><div class="check-row"><span>${calibracion===true?"☑ Sí":"☐ Sí"}</span><span>${calibracion===false?"☑ No":"☐ No"}</span></div></div>
+    <div class="check-group"><label>Control de calidad</label><div class="check-row"><span>${controlCalidad===true?"☑ Sí":"☐ Sí"}</span><span>${controlCalidad===false?"☑ No":"☐ No"}</span></div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Firmas</div>
+  <div class="grid-2">
+    <div><div class="field-label" style="margin-bottom:6px;">Técnico encargado</div><div class="sig-box"><div style="margin-top:30px;font-size:12px;color:#555;">${user.name}</div></div></div>
+    <div><div class="field-label" style="margin-bottom:6px;">Nombre y firma del cliente</div><div class="sig-box" id="sigBoxPDF">${signed?`<img src="${canvasRef.current?.toDataURL()}" class="sig-img"/>`:""}<div style="margin-top:${signed?4:30}px;font-size:11px;color:#0F6E56;">${signed?`Firmado a las ${sigTime}`:"Sin firma"}</div></div></div>
+  </div>
+</div>
+
+<div class="footer">DIPRODI · Residencial Plaza, Casa No.1, Bloque 32, Tegucigalpa · Telefax: 2230-7121</div>
+</body>
+</html>`;
+    const w=window.open("","_blank");
+    w.document.write(reportHTML);
+    w.document.close();
+    setTimeout(()=>w.print(),500);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,overflowY:"auto",padding:"16px 8px"}}>
+      <div style={{maxWidth:480,margin:"0 auto",background:"var(--card)",borderRadius:20,overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{background:"linear-gradient(135deg,#0C447C,#185FA5)",padding:"16px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <img src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" style={{height:32,borderRadius:4}} alt="DIPRODI"/>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:"white"}}>Reporte de visita</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>{reportNum}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:"50%",width:28,height:28,color:"white",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+        </div>
+
+        <div style={{padding:16,overflowY:"auto",maxHeight:"80vh"}}>
+          {/* Número auto */}
+          <div style={{background:"#E1F5EE",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:12,color:"#0F6E56",fontWeight:600}}>📋 Número de reporte</div>
+            <div style={{fontSize:14,fontWeight:800,color:"#0F6E56",fontFamily:"monospace"}}>{reportNum}</div>
+          </div>
+
+          {/* Técnico y cliente */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Técnico y cliente</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Técnico</div><div style={{fontSize:13,fontWeight:600,color:"#0F6E56",background:"#E1F5EE",borderRadius:6,padding:"6px 8px"}}>✓ {user.name}</div></div>
+              <div><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Cliente</div><div style={{fontSize:13,fontWeight:600,color:"#0F6E56",background:"#E1F5EE",borderRadius:6,padding:"6px 8px"}}>✓ {client?.name}</div></div>
+            </div>
+          </div>
+
+          {/* Equipo */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Equipo revisado</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              {[["Marca",marca,setMarca,"Ej: Siemens"],["Modelo",modelo,setModelo,"Ej: XP-300"],["No. serie",serie,setSerie,"Ej: SN-001"]].map(([l,v,s,ph])=>(
+                <div key={l}><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div><input value={v} onChange={e=>s(e.target.value)} placeholder={ph} style={{width:"100%",padding:"7px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}/></div>
+              ))}
+            </div>
+          </div>
+
+          {/* Horario */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Horario</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              <div><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Fecha</div><div style={{fontSize:11,color:"#0F6E56",background:"#E1F5EE",borderRadius:6,padding:"6px 8px",fontWeight:600}}>{fechaStr}</div></div>
+              <div><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Llegada</div><div style={{fontSize:13,color:"#0F6E56",background:"#E1F5EE",borderRadius:6,padding:"6px 8px",fontWeight:700}}>{arrivalTime}</div></div>
+              <div><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Salida (al firmar)</div><div style={{fontSize:13,color:sigTime?"#0F6E56":"var(--text2)",background:sigTime?"#E1F5EE":"var(--surface)",border:"1px solid var(--border)",borderRadius:6,padding:"6px 8px",fontWeight:sigTime?700:400}}>{sigTime||"Pendiente firma"}</div></div>
+            </div>
+          </div>
+
+          {/* Detalle visita */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Detalle de la visita</div>
+            {[["Condición del equipo",condicion,setCondicion,"Estado del equipo al llegar...",64],["Reparaciones efectuadas",reparaciones,setReparaciones,"Describa las reparaciones...",80],["Repuestos utilizados",repuestos,setRepuestos,"Liste los repuestos...",56]].map(([l,v,s,ph,h])=>(
+              <div key={l} style={{marginBottom:8}}><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div><textarea value={v} onChange={e=>s(e.target.value)} placeholder={ph} rows={2} style={{width:"100%",padding:"7px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12,resize:"vertical",minHeight:h,fontFamily:"inherit"}}/></div>
+            ))}
+          </div>
+
+          {/* Control calidad */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Control de calidad</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              {[["Calibración",calibracion,setCalibracion],["Control de calidad",controlCalidad,setControlCalidad]].map(([l,v,s])=>(
+                <div key={l}>
+                  <div style={{fontSize:12,color:"var(--text2)",marginBottom:6}}>{l}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    {[["Sí",true],["No",false]].map(([label,val])=>(
+                      <button key={label} onClick={()=>s(v===val?null:val)} style={{flex:1,padding:"7px",borderRadius:7,border:`1px solid ${v===val?"#0F6E56":"var(--border)"}`,background:v===val?"#E1F5EE":"transparent",color:v===val?"#0F6E56":"var(--text2)",fontSize:12,fontWeight:v===val?700:400,cursor:"pointer"}}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Firma */}
+          <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>✍️ Firma del cliente — <span style={{color:"#0F6E56",textTransform:"none"}}>registra hora de salida</span></div>
+            <div style={{position:"relative",border:"1px dashed #0F6E56",borderRadius:10,overflow:"hidden",background:"white"}}>
+              <canvas ref={canvasRef} width={640} height={140}
+                style={{display:"block",width:"100%",height:140,cursor:signed?"default":"crosshair",touchAction:"none"}}
+                onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={()=>{drawingRef.current=false;}}
+                onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+              />
+              {!signed&&<div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",fontSize:12,color:"#aaa",pointerEvents:"none",display:"flex",alignItems:"center",gap:6}}>✏️ El cliente firma aquí</div>}
+              {signed&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.03)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,pointerEvents:"none"}}><div style={{fontSize:12,color:"#0F6E56",fontWeight:600}}>🔒 Firma registrada</div></div>}
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+              <div style={{fontSize:11,color:"#0F6E56"}}>{signed?`⏰ Hora de salida: ${sigTime}`:""}</div>
+              <button onClick={clearSig} style={{fontSize:11,color:"var(--text2)",background:"none",border:"1px solid var(--border)",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>🧹 Limpiar</button>
+            </div>
+          </div>
+
+          {/* Buttons */}
+          <button onClick={handleDownloadPDF} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            📄 Descargar / Imprimir PDF
+          </button>
+          <button onClick={handleSave} style={{width:"100%",background:"#0F6E56",color:"white",border:"none",borderRadius:12,padding:"13px",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            ✓ Guardar reporte y continuar
+          </button>
+
+          <div style={{textAlign:"center",fontSize:10,color:"var(--text2)",marginTop:8}}>DIPRODI · Residencial Plaza, Casa No.1, Bloque 32, Tegucigalpa · Telefax: 2230-7121</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
@@ -809,6 +1129,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   const [currentDestIdx,setCurrentDestIdx]=useState(0);
   const [destTimers,setDestTimers]=useState({}); // {idx: {arrival, arrivalStr, departure, departureStr, elapsed}}
   const [atDest,setAtDest]=useState(false);
+  const [reportModal,setReportModal]=useState(null); // {destIdx, client, arrivalTime}
+  const [reportData,setReportData]=useState({}); // keyed by destIdx
   const [orderMode,setOrderMode]=useState(null); // null | "ask" | "manual" | "auto_ask" | "done"
   const [orderedDests,setOrderedDests]=useState([]);
   const watchRef=useRef(null);
@@ -955,11 +1277,19 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
   };
 
   const departFromDest=idx=>{
+    // Show report modal before departing
+    const cl=clients.find(c=>c.id===destinations.filter(d=>d.clientId)[idx]?.clientId);
+    const timer=destTimers[idx];
+    setReportModal({destIdx:idx,client:cl,arrivalTime:timer?.arrivalStr||"",destType:destinations.filter(d=>d.clientId)[idx]?.type});
+  };
+
+  const confirmDepart=idx=>{
     clearInterval(destTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
     setDestTimers(prev=>({...prev,[idx]:{...prev[idx],departure:now,departureStr:p2(now)}}));
     setAtDest(false);
+    setReportModal(null);
     const nextIdx=idx+1;
     const validDests=destinations.filter(d=>d.clientId);
     setCurrentDestIdx(nextIdx);
@@ -1309,6 +1639,20 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
             )}
 
           </div>
+
+          {/* Report Modal */}
+          {reportModal&&<ReportModal
+            destIdx={reportModal.destIdx}
+            client={reportModal.client}
+            arrivalTime={reportModal.arrivalTime}
+            destType={reportModal.destType}
+            user={user}
+            onSave={(data)=>{
+              setReportData(prev=>({...prev,[reportModal.destIdx]:data}));
+              confirmDepart(reportModal.destIdx);
+            }}
+            onClose={()=>setReportModal(null)}
+          />}
 
           {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
