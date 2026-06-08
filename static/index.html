@@ -285,8 +285,11 @@ function SvgMap({trip,height=320}){
 // ─── TRIP DETAIL ──────────────────────────────────────────────────────────────
 function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuelGasPrice=95,fuelDieselPrice=85}){
   if(!trip) return null;
-  const tech=techs.find(t=>t.id===trip.technicianId);
-  const client=clients.find(c=>c.id===trip.clientId);
+  // Safety conversions
+  const safeTrip={...trip,km:+(trip.km||0),reimbursement:+(trip.reimbursement||0),equipmentIds:trip.equipmentIds||[],stops:trip.stops||[],routePoints:trip.routePoints||[]};
+  trip=safeTrip;
+  const tech=techs.find(t=>t.id===trip.technicianId)||{name:"—",color:"blue",phone:""};
+  const client=clients.find(c=>c.id===trip.clientId)||{name:"—",city:"",department:"",contact:""};
   const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
   return(
     <Modal title="Detalle del viaje" onClose={onClose} wide>
