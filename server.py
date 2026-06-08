@@ -35,6 +35,21 @@ def r2d(row):
 
 def rlist(rows): return [r2d(r) for r in (rows or [])]
 
+def migrate_db():
+    """Add missing columns to existing tables"""
+    conn = get_db()
+    if is_pg():
+        cur = conn.cursor()
+        migrations = [
+            "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_id TEXT",
+            "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_num TEXT",
+        ]
+        for sql in migrations:
+            try: cur.execute(sql)
+            except: pass
+        conn.commit()
+    conn.close()
+
 def init_db():
     conn=get_db()
     if is_pg():
@@ -369,6 +384,7 @@ def index(): return send_from_directory("static","index.html")
 def static_files(path): return send_from_directory("static",path)
 
 init_db()
+migrate_db()
 
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
