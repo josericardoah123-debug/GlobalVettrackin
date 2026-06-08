@@ -223,7 +223,7 @@ function GoogleMap({trip,apiKey,height=320}){
   },[trip,apiKey]);
 
   if(!apiKey){
-    return <SvgMap trip={trip} height={height}/>;
+    return <SvgMap trip={trip} height={height} mapsKey={apiKey}/>;
   }
 
   return(
@@ -238,7 +238,7 @@ function GoogleMap({trip,apiKey,height=320}){
 }
 
 // ─── SVG FALLBACK MAP ─────────────────────────────────────────────────────────
-function SvgMap({trip,height=320}){
+function SvgMap({trip,height=320,mapsKey=""}){
   const W=700,H=height||320,pad=44;
   const pts=trip.routePoints||[];
   if(!pts.length) return <div style={{background:"#eef2f7",borderRadius:12,padding:24,textAlign:"center",color:"#888",fontSize:13,height:H,display:"flex",alignItems:"center",justifyContent:"center"}}>Sin datos de ruta</div>;
@@ -276,7 +276,7 @@ function SvgMap({trip,height=320}){
       <div style={{padding:"8px 14px",borderTop:"1px solid #dde3ea",display:"flex",gap:6,flexWrap:"wrap",background:"white",alignItems:"center"}}>
         <span style={{fontSize:11,color:"#666"}}>Equipos:</span>
         {(trip.equipmentIds||[]).map(id=><span key={id} style={{background:"#EEEDFE",color:"#3C3489",fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500}}>{id}</span>)}
-        {!apiKey&&<span style={{marginLeft:"auto",fontSize:10,color:"#999"}}>Configure Google Maps en Ajustes para mapa real</span>}
+        {!mapsKey&&<span style={{marginLeft:"auto",fontSize:10,color:"#999"}}>Configure Google Maps en Ajustes para mapa real</span>}
       </div>
     </div>
   );
