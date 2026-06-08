@@ -915,10 +915,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
       const saved=await res.json();
       setReportNum(saved.reportNum||reportNum);
       setReportSaved(true);
-      // Link report to trip
-      if(saved.id&&tripId){
-        await fetch(`/api/trips/${tripId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({reportId:saved.id,reportNum:saved.reportNum})});
-      }
+      // Save reportId to link later when trip is saved
       onSave({...data,reportNum:saved.reportNum||reportNum,reportId:saved.id});
     }catch(e){console.error(e);onSave({...data,reportNum});}
   };
@@ -1379,7 +1376,10 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       };
     });
     const allEquipIds=[...new Set(validDests.flatMap(d=>d.equipIds))];
-    await onSaveTrip({
+    // Collect all report IDs from this trip
+    const tripReports=Object.values(reportData);
+    const firstReport=tripReports[0];
+    const savedTrip=await onSaveTrip({
       technicianId:user.id,clientId:mainDest?.clientId||validDests[0]?.clientId,
       date:now.toISOString().slice(0,10),
       tripType:validDests[0]?.type||"entrega",
@@ -1389,7 +1389,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       stops:tripStops,routePoints:gpsPts,
       startTime:p2(startTime||now),endTime:p2(now),
       km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
-      notes:validDests.map(d=>d.notes).filter(Boolean).join(" | ")||"Viaje completado."
+      notes:validDests.map(d=>d.notes).filter(Boolean).join(" | ")||"Viaje completado.",
+      reportId:firstReport?.reportId||null,
+      reportNum:firstReport?.reportNum||null
     });
     setKm(0);setDestinations([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
     setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);
@@ -1934,7 +1936,7 @@ function App(){
   const addTech=async d=>{const t=await API.post("/api/users",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
   const addInventory=async d=>{const eq=await API.post("/api/inventory",d);setInventory(p=>[...p,eq]);showToast("Equipo agregado ✓");};
   const addClient=async d=>{const c=await API.post("/api/clients",d);setClients(p=>[...p,c]);showToast("Cliente agregado ✓");};
-  const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");};
+  const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");return t;};
 
   if(!user) return <AuthScreen onLogin={handleLogin}/>;
 
