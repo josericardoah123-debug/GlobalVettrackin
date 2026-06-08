@@ -87,6 +87,31 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS visit_reports (
+            id TEXT PRIMARY KEY,
+            trip_id TEXT NOT NULL,
+            technician_id TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            report_num TEXT NOT NULL,
+            fecha TEXT NOT NULL,
+            hora_llegada TEXT DEFAULT '',
+            hora_salida TEXT DEFAULT '',
+            marca TEXT DEFAULT '',
+            modelo TEXT DEFAULT '',
+            serie TEXT DEFAULT '',
+            condicion TEXT DEFAULT '',
+            reparaciones TEXT DEFAULT '',
+            repuestos TEXT DEFAULT '',
+            calibracion INTEGER DEFAULT NULL,
+            control_calidad INTEGER DEFAULT NULL,
+            signed INTEGER DEFAULT 0,
+            sig_time TEXT DEFAULT '',
+            sig_data TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (trip_id) REFERENCES trips(id),
+            FOREIGN KEY (technician_id) REFERENCES users(id),
+            FOREIGN KEY (client_id) REFERENCES clients(id)
+        );
         """)
         db.execute("INSERT OR IGNORE INTO settings VALUES ('rate_per_km','5.0')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('maps_api_key','')")
@@ -381,6 +406,57 @@ def update_trip(tid):
 def frontend(path="index.html"):
     try: return send_from_directory("static", path)
     except: return send_from_directory("static", "index.html")
+
+@app.route("/api/reports", methods=["GET"])
+def get_reports():
+    tech_id = request.args.get("technicianId")
+    with get_db() as db:
+        if tech_id:
+            rows = db.execute("SELECT * FROM visit_reports WHERE technician_id=? ORDER BY created_at DESC", (tech_id,)).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM visit_reports ORDER BY created_at DESC").fetchall()
+        reports = []
+        for r in rows:
+            d = dict(r)
+            d["technicianId"] = d.pop("technician_id")
+            d["clientId"] = d.pop("client_id")
+            d["tripId"] = d.pop("trip_id")
+            d["reportNum"] = d.pop("report_num")
+            d["horaLlegada"] = d.pop("hora_llegada")
+            d["horaSalida"] = d.pop("hora_salida")
+            d["controlCalidad"] = d.pop("control_calidad")
+            d["sigTime"] = d.pop("sig_time")
+            d["sigData"] = d.pop("sig_data")
+            d["createdAt"] = d.pop("created_at")
+            reports.append(d)
+        return jsonify(reports)
+
+@app.route("/api/reports", methods=["POST"])
+def save_report():
+    d = request.get_json()
+    rid = "rep_" + uuid.uuid4().hex[:12]
+    with get_db() as db:
+        # Generate sequential report number
+        year = datetime.now().strftime("%Y")
+        month = datetime.now().strftime("%m")
+        count = db.execute("SELECT COUNT(*) FROM visit_reports WHERE report_num LIKE ?", (f"LT-{year}{month}-%",)).fetchone()[0]
+        seq = count + 1
+        report_num = f"LT-{year}{month}-{str(seq).zfill(3)}"
+        
+        db.execute("""INSERT INTO visit_reports 
+            (id,trip_id,technician_id,client_id,report_num,fecha,hora_llegada,hora_salida,
+             marca,modelo,serie,condicion,reparaciones,repuestos,calibracion,control_calidad,
+             signed,sig_time,sig_data)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (rid, d.get("tripId",""), d.get("technicianId",""), d.get("clientId",""),
+             report_num, d.get("fecha",""), d.get("horaLlegada",""), d.get("horaSalida",""),
+             d.get("marca",""), d.get("modelo",""), d.get("serie",""),
+             d.get("condicion",""), d.get("reparaciones",""), d.get("repuestos",""),
+             1 if d.get("calibracion") else 0 if d.get("calibracion")==False else None,
+             1 if d.get("controlCalidad") else 0 if d.get("controlCalidad")==False else None,
+             1 if d.get("signed") else 0, d.get("sigTime",""), d.get("sigData","")))
+        db.commit()
+        return jsonify({"id":rid,"reportNum":report_num})
 
 if __name__ == "__main__":
     init_db()

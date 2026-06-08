@@ -365,7 +365,7 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuel
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:14,borderTop:"1px solid var(--border)"}}>
         <Badge type={trip.status}>{trip.status}</Badge>
         <div style={{display:"flex",gap:8}}>
-          {trip.status==="pendiente"&&<Btn variant="success" onClick={()=>onApprove(trip.id)}>✓ Aprobar y reembolsar</Btn>}
+          {trip.status==="pendiente"&&onApprove&&<Btn variant="success" onClick={()=>onApprove(trip.id)}>✓ Aprobar y reembolsar</Btn>}
           <Btn onClick={onClose}>Cerrar</Btn>
         </div>
       </div>
@@ -797,10 +797,13 @@ function Tecnicos({techs,onAdd,trips}){
 // ─── APP EMPLEADO (MÓVIL) ─────────────────────────────────────────────────────
 
 // ─── VISIT REPORT MODAL ──────────────────────────────────────────────────────
-function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
-  const [marca,setMarca]=useState("");
-  const [modelo,setModelo]=useState("");
-  const [serie,setSerie]=useState("");
+function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tripId,selectedEquips=[],inventory=[]}){
+  // Auto-fill from selected equipment
+  const firstEquip=inventory.find(e=>selectedEquips.includes(e.id));
+  const [marca,setMarca]=useState(firstEquip?.name||"");
+  const [modelo,setModelo]=useState(firstEquip?.model||"");
+  const [serie,setSerie]=useState(firstEquip?.serial||"");
+  const [selectedEquipId,setSelectedEquipId]=useState(firstEquip?.id||"");
   const [condicion,setCondicion]=useState("");
   const [reparaciones,setReparaciones]=useState("");
   const [repuestos,setRepuestos]=useState("");
@@ -817,12 +820,11 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
   const meses=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
   const fechaStr=`${dias[now.getDay()]}, ${now.getDate()} de ${meses[now.getMonth()]} de ${now.getFullYear()}`;
   
-  // Generate report number
+  // Report number comes from server after save — show placeholder until then
   const year=now.getFullYear();
   const month=String(now.getMonth()+1).padStart(2,"0");
-  const day=String(now.getDate()).padStart(2,"0");
-  const seq=Math.floor(Math.random()*99)+1;
-  const reportNum=`LT-${year}${month}-${String(seq).padStart(3,"0")}`;
+  const [reportNum,setReportNum]=useState("LT-"+year+month+"-...");
+  const [reportSaved,setReportSaved]=useState(false);
 
   const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
 
@@ -846,7 +848,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
   };
 
   const startDraw=e=>{
-    if(sigLockedRef.current) return;
+    if(sigLockedRef.current) return; // locked after confirm
     e.preventDefault();
     drawingRef.current=true;
     const canvas=canvasRef.current;
@@ -870,7 +872,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
 
   const endDraw=()=>{
     drawingRef.current=false;
-    if(signed) sigLockedRef.current=true;
+    // Don't lock automatically — user must click confirm button
   };
 
   const clearSig=()=>{
@@ -881,15 +883,22 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
     sigLockedRef.current=false;
   };
 
-  const handleSave=()=>{
+  const handleSave=async()=>{
     const data={
-      reportNum,fecha:fechaStr,tecnico:user.name,cliente:client?.name,
-      marca,modelo,serie,condicion,reparaciones,repuestos,
+      tripId,technicianId:user.id,clientId:client?.id,
+      fecha:fechaStr,marca,modelo,serie,condicion,reparaciones,repuestos,
       calibracion,controlCalidad,
       horaLlegada:arrivalTime,horaSalida:sigTime||p2(new Date()),
-      signed,sigTime
+      signed,sigTime,
+      sigData:canvasRef.current?.toDataURL()||""
     };
-    onSave(data);
+    try{
+      const res=await fetch("/api/reports",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+      const saved=await res.json();
+      setReportNum(saved.reportNum||reportNum);
+      setReportSaved(true);
+    }catch(e){console.error(e);}
+    onSave({...data,reportNum});
   };
 
   const handleDownloadPDF=()=>{
@@ -1040,6 +1049,21 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
           {/* Equipo */}
           <div style={{background:"var(--surface)",borderRadius:10,padding:"12px",marginBottom:10}}>
             <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Equipo revisado</div>
+            {selectedEquips.length>0&&(
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:11,color:"var(--text2)",marginBottom:4}}>Seleccionar equipo del viaje</div>
+                <select value={selectedEquipId} onChange={e=>{
+                  const eq=inventory.find(i=>i.id===e.target.value);
+                  setSelectedEquipId(e.target.value);
+                  if(eq){setMarca(eq.name);setModelo(eq.model);setSerie(eq.serial);}
+                }} style={{width:"100%",padding:"7px 8px",borderRadius:6,border:"1px solid #185FA5",background:"var(--card)",color:"var(--text)",fontSize:12,marginBottom:6}}>
+                  <option value="">Seleccionar equipo...</option>
+                  {inventory.filter(e=>selectedEquips.includes(e.id)).map(eq=>(
+                    <option key={eq.id} value={eq.id}>{eq.name} {eq.model} — S/N: {eq.serial}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
               {[["Marca",marca,setMarca,"Ej: Siemens"],["Modelo",modelo,setModelo,"Ej: XP-300"],["No. serie",serie,setSerie,"Ej: SN-001"]].map(([l,v,s,ph])=>(
                 <div key={l}><div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div><input value={v} onChange={e=>s(e.target.value)} placeholder={ph} style={{width:"100%",padding:"7px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}/></div>
@@ -1095,8 +1119,11 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
               {signed&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.03)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,pointerEvents:"none"}}><div style={{fontSize:12,color:"#0F6E56",fontWeight:600}}>🔒 Firma registrada</div></div>}
             </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
-              <div style={{fontSize:11,color:"#0F6E56"}}>{signed?`⏰ Hora de salida: ${sigTime}`:""}</div>
-              <button onClick={clearSig} style={{fontSize:11,color:"var(--text2)",background:"none",border:"1px solid var(--border)",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>🧹 Limpiar</button>
+              <div style={{fontSize:11,color:"#0F6E56"}}>{sigLockedRef.current?`⏰ Hora de salida: ${sigTime}`:signed?"Dibujando firma...":""}</div>
+              <div style={{display:"flex",gap:6}}>
+                {!sigLockedRef.current&&<button onClick={clearSig} style={{fontSize:11,color:"var(--text2)",background:"none",border:"1px solid var(--border)",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>🧹 Limpiar</button>}
+                {signed&&!sigLockedRef.current&&<button onClick={()=>{sigLockedRef.current=true;const ts=p2(new Date());setSigTime(ts);}} style={{fontSize:11,color:"white",background:"#0F6E56",border:"none",borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:700}}>✓ Confirmar firma</button>}
+              </div>
             </div>
           </div>
 
@@ -1115,7 +1142,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose}){
   );
 }
 
-function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
+function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[]}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
   const [km,setKm]=useState(0);
@@ -1280,7 +1307,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
     // Show report modal before departing
     const cl=clients.find(c=>c.id===destinations.filter(d=>d.clientId)[idx]?.clientId);
     const timer=destTimers[idx];
-    setReportModal({destIdx:idx,client:cl,arrivalTime:timer?.arrivalStr||"",destType:destinations.filter(d=>d.clientId)[idx]?.type});
+    const destInfo=destinations.filter(d=>d.clientId)[idx];
+    setReportModal({destIdx:idx,client:cl,arrivalTime:timer?.arrivalStr||"",destType:destInfo?.type,equipIds:destInfo?.equipIds||[],tripId:"trip_"+Date.now()});
   };
 
   const confirmDepart=idx=>{
@@ -1595,6 +1623,30 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
               </div>
             )}
 
+            {/* ── REPORTES EMPLEADO ── */}
+            {tab==="reportes_emp"&&(
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:12}}>Mis reportes ({myTrips.length>0?reports.filter(r=>r.technicianId===user.id).length:0})</div>
+                {reports.filter(r=>r.technicianId===user.id).length===0&&<div style={{color:"var(--text2)",fontSize:13,padding:"20px 0",textAlign:"center"}}>Sin reportes aún</div>}
+                {reports.filter(r=>r.technicianId===user.id).map(rep=>{
+                  const cl=clients.find(c=>c.id===rep.clientId);
+                  return(
+                    <div key={rep.id} style={{background:"var(--surface)",borderRadius:10,padding:"11px 13px",marginBottom:8,border:"1px solid var(--border)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#0F6E56",fontFamily:"monospace",marginBottom:2}}>{rep.reportNum}</div>
+                          <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{cl?.name||"—"}</div>
+                          <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{rep.fecha} · {rep.horaLlegada}–{rep.horaSalida}</div>
+                          {(rep.marca||rep.modelo)&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>🔧 {[rep.marca,rep.modelo].filter(Boolean).join(" ")}</div>}
+                        </div>
+                        <span style={{fontSize:18}}>{rep.signed?"✅":"⏳"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* ── HISTORIAL ── */}
             {tab==="historial"&&(
               <div>
@@ -1647,6 +1699,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
             arrivalTime={reportModal.arrivalTime}
             destType={reportModal.destType}
             user={user}
+            tripId={reportModal.tripId}
+            selectedEquips={reportModal.equipIds||[]}
+            inventory={inventory}
             onSave={(data)=>{
               setReportData(prev=>({...prev,[reportModal.destIdx]:data}));
               confirmDepart(reportModal.destIdx);
@@ -1656,7 +1711,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey}){
 
           {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
-            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
+            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
               <button key={t.k} onClick={()=>{
                 if(t.k==="viaje"&&active){setTab("activo");return;}
                 if(t.k!=="inicio"&&t.k!=="historial"&&t.k!=="perfil") return;
@@ -1743,6 +1798,64 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
 }
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
+
+// ─── ADMIN REPORTS PAGE ──────────────────────────────────────────────────────
+function AdminReports({reports,techs,clients}){
+  const [filterTech,setFilterTech]=useState("all");
+  
+  // Group by technician, sorted A-Z
+  const sortedTechs=[...techs].sort((a,b)=>a.name.localeCompare(b.name));
+  const filtered=reports.filter(r=>filterTech==="all"||r.technicianId===filterTech);
+  
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontWeight:800,fontSize:20,color:"var(--text)",marginBottom:4}}>Reportes de visita</div>
+      <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>{reports.length} reportes totales</div>
+      
+      {/* Filter by tech */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+        <button onClick={()=>setFilterTech("all")} style={{padding:"5px 12px",borderRadius:20,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",background:filterTech==="all"?"#185FA5":"var(--surface)",color:filterTech==="all"?"white":"var(--text)"}}>Todos</button>
+        {sortedTechs.map(t=>(
+          <button key={t.id} onClick={()=>setFilterTech(t.id)} style={{padding:"5px 12px",borderRadius:20,border:"1px solid var(--border)",fontSize:12,cursor:"pointer",background:filterTech===t.id?"#185FA5":"var(--surface)",color:filterTech===t.id?"white":"var(--text)"}}>{t.name}</button>
+        ))}
+      </div>
+
+      {/* Reports grouped by tech */}
+      {sortedTechs.filter(t=>filterTech==="all"||t.id===filterTech).map(tech=>{
+        const techReports=filtered.filter(r=>r.technicianId===tech.id);
+        if(techReports.length===0) return null;
+        return(
+          <div key={tech.id} style={{marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <Avatar initials={tech.name.split(" ").map(w=>w[0]).join("").slice(0,2)} color={tech.color} size={28}/>
+              <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{tech.name}</div>
+              <span style={{fontSize:12,color:"var(--text2)"}}>({techReports.length} reporte{techReports.length!==1?"s":""})</span>
+            </div>
+            {techReports.map(rep=>{
+              const cl=clients.find(c=>c.id===rep.clientId);
+              return(
+                <div key={rep.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#0F6E56",fontFamily:"monospace"}}>{rep.reportNum}</span>
+                      {rep.signed&&<span style={{fontSize:10,background:"#E1F5EE",color:"#0F6E56",padding:"2px 6px",borderRadius:4,fontWeight:600}}>✍️ Firmado</span>}
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{cl?.name||"—"}</div>
+                    <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{rep.fecha} · Llegada: {rep.horaLlegada} · Salida: {rep.horaSalida}</div>
+                    {(rep.marca||rep.modelo)&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>🔧 {[rep.marca,rep.modelo,rep.serie].filter(Boolean).join(" — ")}</div>}
+                  </div>
+                  <div style={{fontSize:20}}>{rep.signed?"✅":"⏳"}</div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      {filtered.length===0&&<div style={{textAlign:"center",color:"var(--text2)",padding:"40px 0",fontSize:14}}>Sin reportes aún</div>}
+    </div>
+  );
+}
+
 function App(){
   const [user,setUser]=useState(()=>LS.get("lt_user",null));
   const [dark,setDark]=useState(false);
@@ -1751,6 +1864,7 @@ function App(){
   const [inventory,setInventory]=useState([]);
   const [clients,setClients]=useState([]);
   const [trips,setTrips]=useState([]);
+  const [reports,setReports]=useState([]);
   const [rate,setRate]=useState(5.0);
   const [mapsKey,setMapsKey]=useState("");
   const [companyName,setCompanyName]=useState("LabTrack");
@@ -1863,17 +1977,18 @@ function App(){
         <div style={{flex:1,padding:"22px 24px",overflowY:"auto"}}>
           {loading?<Spinner/>:<>
             {page==="dashboard" &&isAdmin&&<Dashboard trips={trips} techs={techs} inventory={inventory} clients={clients} onViewTrip={setViewTrip}/>}
-            {page==="viajes"    &&<Viajes trips={isAdmin?trips:trips.filter(t=>t.technicianId===user.id)} techs={techs} clients={clients} inventory={inventory} onViewTrip={setViewTrip}/>}
+            {page==="viajes"    &&<Viajes trips={isAdmin?trips:trips.filter(t=>t.technicianId===user.id)} techs={techs} clients={clients} inventory={inventory} onViewTrip={setViewTrip} isAdmin={isAdmin}/>}
             {page==="inventario"&&isAdmin&&<Inventario inventory={inventory} onAdd={addInventory}/>}
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
-            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey}/>}
+            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports}/>}
+            {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
             {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onSaveFuelPrices={saveFuelPrices}/>}
           </>}
         </div>
       </div>
 
-      {viewTrip&&<TripDetail trip={viewTrip} techs={techs} clients={clients} inventory={inventory} onClose={()=>setViewTrip(null)} onApprove={approveTrip} mapsKey={mapsKey} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
+      {viewTrip&&<TripDetail trip={viewTrip} techs={techs} clients={clients} inventory={inventory} onClose={()=>setViewTrip(null)} onApprove={isAdmin?approveTrip:null} mapsKey={mapsKey} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
       {toast&&<div style={{position:"fixed",bottom:24,right:24,background:toast.type==="error"?"#A32D2D":"#0F6E56",color:"white",padding:"12px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.2)"}}>{toast.msg}</div>}
     </div>
   );
