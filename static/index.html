@@ -1198,7 +1198,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
   );
 }
 
-function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[]}){
+function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[],fuelGasPrice=95,fuelDieselPrice=85}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
   const [km,setKm]=useState(0);
@@ -2066,7 +2066,7 @@ function App(){
             {page==="inventario"&&isAdmin&&<Inventario inventory={inventory} onAdd={addInventory}/>}
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
-            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports}/>}
+            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
             {page==="mis_reportes"&&!isAdmin&&<AdminReports reports={reports.filter(r=>r.technicianId===user.id)} techs={techs} clients={clients} soloMio={true}/>}
             {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onSaveFuelPrices={saveFuelPrices}/>}
