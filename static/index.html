@@ -1670,13 +1670,16 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
                   return(
                     <div key={rep.id} style={{background:"var(--surface)",borderRadius:10,padding:"11px 13px",marginBottom:8,border:"1px solid var(--border)"}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                        <div>
+                        <div style={{flex:1}}>
                           <div style={{fontSize:12,fontWeight:700,color:"#0F6E56",fontFamily:"monospace",marginBottom:2}}>{rep.reportNum}</div>
                           <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{cl?.name||"—"}</div>
                           <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{rep.fecha} · {rep.horaLlegada}–{rep.horaSalida}</div>
                           {(rep.marca||rep.modelo)&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>🔧 {[rep.marca,rep.modelo].filter(Boolean).join(" ")}</div>}
                         </div>
-                        <span style={{fontSize:18}}>{rep.signed?"✅":"⏳"}</span>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                          <span style={{fontSize:18}}>{rep.signed?"✅":"⏳"}</span>
+                          <button onClick={()=>window.open(`/api/reports/${rep.id}/pdf`,"_blank")} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📄 PDF</button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1874,7 +1877,7 @@ function AdminReports({reports,techs,clients}){
               const cl=clients.find(c=>c.id===rep.clientId);
               return(
                 <div key={rep.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div>
+                  <div style={{flex:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                       <span style={{fontSize:12,fontWeight:700,color:"#0F6E56",fontFamily:"monospace"}}>{rep.reportNum}</span>
                       {rep.signed&&<span style={{fontSize:10,background:"#E1F5EE",color:"#0F6E56",padding:"2px 6px",borderRadius:4,fontWeight:600}}>✍️ Firmado</span>}
@@ -1883,7 +1886,10 @@ function AdminReports({reports,techs,clients}){
                     <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{rep.fecha} · Llegada: {rep.horaLlegada} · Salida: {rep.horaSalida}</div>
                     {(rep.marca||rep.modelo)&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>🔧 {[rep.marca,rep.modelo,rep.serie].filter(Boolean).join(" — ")}</div>}
                   </div>
-                  <div style={{fontSize:20}}>{rep.signed?"✅":"⏳"}</div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                    <div style={{fontSize:20}}>{rep.signed?"✅":"⏳"}</div>
+                    <button onClick={()=>window.open(`/api/reports/${rep.id}/pdf`,"_blank")} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📄 Ver PDF</button>
+                  </div>
                 </div>
               );
             })}

@@ -35,21 +35,6 @@ def r2d(row):
 
 def rlist(rows): return [r2d(r) for r in (rows or [])]
 
-def migrate_db():
-    """Add missing columns to existing tables"""
-    conn = get_db()
-    if is_pg():
-        cur = conn.cursor()
-        migrations = [
-            "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_id TEXT",
-            "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_num TEXT",
-        ]
-        for sql in migrations:
-            try: cur.execute(sql)
-            except: pass
-        conn.commit()
-    conn.close()
-
 def init_db():
     conn=get_db()
     if is_pg():
@@ -364,7 +349,19 @@ def report_pdf(rid):
 .footer{{text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:12px;margin-top:18px;}}
 .btn{{background:#0F6E56;color:white;border:none;padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;}}
 @media print{{.np{{display:none;}}}}</style></head><body>
-<div class="np" style="text-align:right;margin-bottom:16px;"><button class="btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button></div>
+<div class="np" style="text-align:right;margin-bottom:16px;">
+  <button class="btn" onclick="window.print()" style="margin-right:8px;">🖨️ Imprimir / Guardar PDF</button>
+  <button class="btn" onclick="window.close()" style="background:#666;">✕ Cerrar</button>
+</div>
+<script>
+// Auto-trigger print dialog after page loads
+window.addEventListener('load', function() {{
+  // Small delay to ensure everything renders
+  setTimeout(function() {{
+    window.focus();
+  }}, 500);
+}});
+</script>
 <div class="header"><div class="logo"><img class="logo-img" src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" alt="DIPRODI" onerror="this.style.display='none'"/><div><div style="font-weight:700;font-size:16px;color:#0F6E56;">DIPRODI</div><div style="font-size:11px;color:#555;">Reporte de visita técnica</div></div></div><div class="rnum">{rep['reportNum']}</div></div>
 <div class="sec"><div class="st">📋 Número de reporte</div><div class="g4"><div><div class="fl">Número</div><div class="fv" style="color:#0F6E56;">{rep['reportNum']}</div></div><div><div class="fl">Fecha</div><div class="fv">{rep['fecha']}</div></div><div><div class="fl">Hora llegada</div><div class="fv">{rep['horaLlegada'] or '—'}</div></div><div><div class="fl">Hora salida</div><div class="fv">{rep['horaSalida'] or '—'}</div></div></div></div>
 <div class="sec"><div class="st">👤 Técnico y cliente</div><div class="g2"><div><div class="fl">Técnico</div><div class="fv" style="color:#0F6E56;">✓ {tname}</div></div><div><div class="fl">Cliente</div><div class="fv" style="color:#0F6E56;">✓ {cname} — {ccity}</div></div></div></div>
@@ -384,7 +381,6 @@ def index(): return send_from_directory("static","index.html")
 def static_files(path): return send_from_directory("static",path)
 
 init_db()
-migrate_db()
 
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
