@@ -1906,8 +1906,8 @@ function App(){
 
   const loadAll=async()=>{
     try{
-      const [t,i,c,tr,s]=await Promise.all([API.get("/api/users"),API.get("/api/inventory"),API.get("/api/clients"),API.get("/api/trips"),API.get("/api/settings")]);
-      setTechs(t);setInventory(i);setClients(c);setTrips(tr);
+      const [t,i,c,tr,s,reps]=await Promise.all([API.get("/api/users"),API.get("/api/inventory"),API.get("/api/clients"),API.get("/api/trips"),API.get("/api/settings"),API.get("/api/reports")]);
+      setTechs(t);setInventory(i);setClients(c);setTrips(tr);setReports(reps||[]);
       if(s.rate_per_km) setRate(parseFloat(s.rate_per_km));
       if(s.maps_api_key) setMapsKey(s.maps_api_key);
       if(s.company_name) setCompanyName(s.company_name);
