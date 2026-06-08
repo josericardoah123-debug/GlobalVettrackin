@@ -284,6 +284,7 @@ function SvgMap({trip,height=320}){
 
 // ─── TRIP DETAIL ──────────────────────────────────────────────────────────────
 function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuelGasPrice=95,fuelDieselPrice=85}){
+  if(!trip) return null;
   const tech=techs.find(t=>t.id===trip.technicianId);
   const client=clients.find(c=>c.id===trip.clientId);
   const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
@@ -362,6 +363,20 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuel
         ))}
       </div>
       {trip.notes&&<div style={{background:"var(--surface)",borderRadius:8,padding:"12px 14px",marginBottom:14}}><div style={{fontSize:11,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Notas</div><div style={{fontSize:13,color:"var(--text)",lineHeight:1.7}}>{trip.notes}</div></div>}
+      
+      {/* Report preview link */}
+      {trip.reportId&&(
+        <div style={{background:"#E1F5EE",border:"1px solid #5DCAA5",borderRadius:10,padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#0F6E56"}}>📋 Reporte de visita adjunto</div>
+            <div style={{fontSize:11,color:"#085041",marginTop:2}}>{trip.reportNum||"Ver reporte generado"}</div>
+          </div>
+          <button onClick={()=>window.open(`/api/reports/${trip.reportId}/pdf`,"_blank")} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            📄 Ver PDF
+          </button>
+        </div>
+      )}
+
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:14,borderTop:"1px solid var(--border)"}}>
         <Badge type={trip.status}>{trip.status}</Badge>
         <div style={{display:"flex",gap:8}}>
@@ -897,8 +912,12 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
       const saved=await res.json();
       setReportNum(saved.reportNum||reportNum);
       setReportSaved(true);
-    }catch(e){console.error(e);}
-    onSave({...data,reportNum});
+      // Link report to trip
+      if(saved.id&&tripId){
+        await fetch(`/api/trips/${tripId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({reportId:saved.id,reportNum:saved.reportNum})});
+      }
+      onSave({...data,reportNum:saved.reportNum||reportNum,reportId:saved.id});
+    }catch(e){console.error(e);onSave({...data,reportNum});}
   };
 
   const handleDownloadPDF=()=>{
@@ -1002,18 +1021,23 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
   <div class="section-title">Firmas</div>
   <div class="grid-2">
     <div><div class="field-label" style="margin-bottom:6px;">Técnico encargado</div><div class="sig-box"><div style="margin-top:30px;font-size:12px;color:#555;">${user.name}</div></div></div>
-    <div><div class="field-label" style="margin-bottom:6px;">Nombre y firma del cliente</div><div class="sig-box" id="sigBoxPDF">${signed?`<img src="${canvasRef.current?.toDataURL()}" class="sig-img"/>`:""}<div style="margin-top:${signed?4:30}px;font-size:11px;color:#0F6E56;">${signed?`Firmado a las ${sigTime}`:"Sin firma"}</div></div></div>
+    <div><div class="field-label" style="margin-bottom:6px;">Nombre y firma del cliente</div><div class="sig-box" id="sigBoxPDF">${signed?`<img src="${sigImg}" class="sig-img"/>`:""}<div style="margin-top:${signed?4:30}px;font-size:11px;color:#0F6E56;">${signed?`Firmado a las ${sigTime}`:"Sin firma"}</div></div></div>
   </div>
 </div>
 
 <div class="footer">DIPRODI · Residencial Plaza, Casa No.1, Bloque 32, Tegucigalpa · Telefax: 2230-7121</div>
 </body>
 </html>`;
-    const w=window.open("","_blank");
-    w.document.write(reportHTML);
-    w.document.close();
-    setTimeout(()=>w.print(),500);
-  };
+    // Use blob URL to avoid popup blocker
+    const blob = new Blob([reportHTML], {type: 'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Reporte-${reportNum}-${client?.name||'cliente'}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);};
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,overflowY:"auto",padding:"16px 8px"}}>
