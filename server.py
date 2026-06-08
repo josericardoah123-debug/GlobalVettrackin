@@ -2,7 +2,9 @@
 """
 LabTrack Backend — PostgreSQL version
 """
-import os, json, uuid, hashlib, sqlite3
+import os, json, uuid, hashlib, sqlite3, traceback, sys
+import logging
+logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime
 
@@ -544,7 +546,12 @@ def index():
 def static_files(path):
     return send_from_directory("static", path)
 
-init_db()
+try:
+    init_db()
+    print("DB initialized OK", flush=True)
+except Exception as e:
+    print("DB ERROR:", e, flush=True)
+    traceback.print_exc()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
