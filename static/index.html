@@ -386,10 +386,10 @@ function AuthScreen({onLogin}){
     try{
       if(mode==="register"){
         if(form.password!==form.confirm){setErr("Las contraseñas no coinciden");setLoading(false);return;}
-        const u=await API.post("/api/auth/register",{name:form.name,email:form.email,phone:form.phone,password:form.password});
+        const u=await API.post("/api/register",{name:form.name,email:form.email,phone:form.phone,password:form.password});
         onLogin(u);
       } else {
-        const u=await API.post("/api/auth/login",{email:form.email,password:form.password});
+        const u=await API.post("/api/login",{email:form.email,password:form.password});
         onLogin(u);
       }
     }catch(e){setErr(e.message);}
