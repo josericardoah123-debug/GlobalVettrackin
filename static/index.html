@@ -174,6 +174,9 @@ function GoogleMap({trip,apiKey,height=320}){
         new window.google.maps.Marker({position:destPos,map,label:{text:"B",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
         const bounds=new window.google.maps.LatLngBounds();
         path.forEach(p=>bounds.extend(p));
+        bounds.extend(originPos);
+        bounds.extend(destPos);
+        (trip.stops||[]).filter(s=>s.lat&&s.lng&&(s.lat!==0||s.lng!==0)).forEach(s=>bounds.extend({lat:s.lat,lng:s.lng}));
         map.fitBounds(bounds,{top:40,right:40,bottom:40,left:40});
       } else {
         // Use Directions API for road route between origin and destination
@@ -195,14 +198,19 @@ function GoogleMap({trip,apiKey,height=320}){
         new window.google.maps.Marker({position:destPos,map,label:{text:"B",color:"white",fontWeight:"bold"},icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#D85A30",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:14}});
       }
 
-      // Stop markers
-      (trip.stops||[]).forEach((s,i)=>{
-        new window.google.maps.Marker({
+      // Stop markers — only show if they have valid coordinates
+      (trip.stops||[]).filter(s=>s.lat&&s.lng&&(s.lat!==0||s.lng!==0)).forEach((s,i)=>{
+        const marker=new window.google.maps.Marker({
           position:{lat:s.lat,lng:s.lng},map,
-          label:{text:"P",color:"white",fontWeight:"bold"},
-          title:s.label,
-          icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#EF9F27",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:12}
+          label:{text:String(i+1),color:"white",fontWeight:"bold",fontSize:"11px"},
+          title:`${s.label}\nLlegada: ${s.time||"—"} · Salida: ${s.departureTime||"—"}\nTiempo: ${s.timeSpent||"—"}`,
+          icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#EF9F27",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:13}
         });
+        // Info window on click
+        const infoWindow=new window.google.maps.InfoWindow({
+          content:`<div style="font-family:Arial;font-size:12px;padding:4px;"><strong>${s.label}</strong><br/>🕐 Llegada: ${s.time||"—"}<br/>🚗 Salida: ${s.departureTime||"—"}<br/>⏱ Tiempo: ${s.timeSpent||"—"}</div>`
+        });
+        marker.addListener("click",()=>infoWindow.open(map,marker));
       });
     };
 
@@ -1377,7 +1385,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   const arriveAtDest=idx=>{
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
-    setDestTimers(prev=>({...prev,[idx]:{arrival:now,arrivalStr:p2(now),elapsed:0}}));
+    // Get current GPS position at arrival
+    const gpsPos=gpsPts.length>0?gpsPts[gpsPts.length-1]:null;
+    setDestTimers(prev=>({...prev,[idx]:{arrival:now,arrivalStr:p2(now),elapsed:0,arrivalGpsLat:gpsPos?.[0]||null,arrivalGpsLng:gpsPos?.[1]||null}}));
     setAtDest(true);
     destTimerRef.current=setInterval(()=>{
       setDestTimers(prev=>({...prev,[idx]:{...prev[idx],elapsed:(prev[idx]?.elapsed||0)+1}}));
@@ -1423,13 +1433,17 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     const firstPt=gpsPts[0]||null;
     const lastPt=gpsPts[gpsPts.length-1]||null;
     const tripStops=validDests.slice(0,-1).map((d,i)=>{
-      const cl=clients.find(c=>c.id===d.clientId);
+      const cl=d.type==="mandado"?null:clients.find(c=>c.id===d.clientId);
       const timer=destTimers[i]||{};
+      // Use GPS position at arrival time if available, else client coords
+      const stopLat=timer.arrivalGpsLat||cl?.lat||0;
+      const stopLng=timer.arrivalGpsLng||cl?.lng||0;
+      const stopName=d.type==="mandado"?(d.mandadoName||"Mandado"):`${cl?.name||"Destino"} — ${cl?.city||""}`;
       return {
-        label:`${cl?.name||"Destino"} — ${cl?.city||""}`,
+        label:stopName,
         time:timer.arrivalStr||"",departureTime:timer.departureStr||"",
         timeSpent:timer.elapsed?Math.round(timer.elapsed/60)+" min":"",
-        lat:cl?.lat||0,lng:cl?.lng||0
+        lat:stopLat,lng:stopLng
       };
     });
     const allEquipIds=[...new Set(validDests.flatMap(d=>d.equipIds))];
