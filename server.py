@@ -302,8 +302,19 @@ def save_report():
     rnum=f"LT-{year}{month}-{str(count+1).zfill(3)}"
     cal=1 if d.get("calibracion")==True else (0 if d.get("calibracion")==False else None)
     cc=1 if d.get("controlCalidad")==True else (0 if d.get("controlCalidad")==False else None)
+    tech_id = d.get("technicianId","")
+    # Find latest trip from this technician to auto-link
+    cur2 = ex(conn, "SELECT id FROM trips WHERE technician_id=? ORDER BY created_at DESC LIMIT 1", (tech_id,))
+    latest_trip = r2d(cur2.fetchone())
+    auto_trip_id = latest_trip["id"] if latest_trip else d.get("tripId","")
+    
     ex(conn,"INSERT INTO visit_reports(id,trip_id,technician_id,client_id,report_num,fecha,hora_llegada,hora_salida,marca,modelo,serie,condicion,reparaciones,repuestos,calibracion,control_calidad,signed,sig_time,sig_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-       (rid,d.get("tripId",""),d.get("technicianId",""),d.get("clientId",""),rnum,d.get("fecha",""),d.get("horaLlegada",""),d.get("horaSalida",""),d.get("marca",""),d.get("modelo",""),d.get("serie",""),d.get("condicion",""),d.get("reparaciones",""),d.get("repuestos",""),cal,cc,1 if d.get("signed") else 0,d.get("sigTime",""),d.get("sigData","")))
+       (rid,auto_trip_id,tech_id,d.get("clientId",""),rnum,d.get("fecha",""),d.get("horaLlegada",""),d.get("horaSalida",""),d.get("marca",""),d.get("modelo",""),d.get("serie",""),d.get("condicion",""),d.get("reparaciones",""),d.get("repuestos",""),cal,cc,1 if d.get("signed") else 0,d.get("sigTime",""),d.get("sigData","")))
+    
+    # Also update the trip with the reportId
+    if auto_trip_id:
+        ex(conn, "UPDATE trips SET report_id=?, report_num=? WHERE id=?", (rid, rnum, auto_trip_id))
+    
     conn.commit(); conn.close()
     return jsonify({"id":rid,"reportNum":rnum})
 
