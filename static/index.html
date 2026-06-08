@@ -1826,17 +1826,6 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
         </div>
       </div>
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
-        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Tasa de reembolso por km</div>
-        <div style={{fontSize:13,color:"var(--text2)",marginBottom:14}}>Se aplica a todos los viajes nuevos</div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:15,color:"var(--text2)",fontWeight:600}}>L.</span>
-          <input type="number" value={rateVal} step="0.5" min="1" onChange={e=>setRateVal(+e.target.value)} style={{width:110,padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:16,fontWeight:700,fontFamily:"'DM Mono',monospace"}}/>
-          <span style={{fontSize:14,color:"var(--text2)"}}>por km</span>
-          <div style={{marginLeft:"auto"}}><Btn variant="primary" onClick={()=>onSaveRate(rateVal)}>Guardar tasa</Btn></div>
-        </div>
-        <div style={{marginTop:10,fontSize:12,color:"var(--text2)"}}>Ejemplo: 100 km → <strong>L.{fmt(rateVal*100)}</strong></div>
-      </div>
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
         <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>Google Maps API Key</div>
         <div style={{fontSize:13,color:"var(--text2)",marginBottom:10,lineHeight:1.6}}>
           Ingresa tu API Key para mostrar mapas reales en los viajes.<br/>
