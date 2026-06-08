@@ -1305,6 +1305,23 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
             if(dist>0.05){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
             return prev;
           });
+          // Send live position to server every update
+          const validDests=destinations.filter(d=>d.clientId);
+          const currentDest=validDests[currentDestIdx]||validDests[0];
+          const cl=clients.find(c=>c.id===currentDest?.clientId);
+          fetch("/api/gps/update",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+              technicianId:user.id,
+              lat:pos.coords.latitude,
+              lng:pos.coords.longitude,
+              km:km,
+              destName:cl?.name||"",
+              clientName:cl?.name||"",
+              tripType:currentDest?.type||""
+            })
+          }).catch(()=>{});
         },
         err=>{setGpsError(err.code===1?"Permiso denegado":"Error GPS");},
         {enableHighAccuracy:true,maximumAge:5000,timeout:15000}
@@ -1435,6 +1452,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     });
     setKm(0);setDestinations([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
     setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);setLastReportId(null);setLastReportNum(null);setReportData({});reportIdRef.current=null;reportNumRef.current=null;
+    // Clear live position
+    fetch("/api/gps/clear",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({technicianId:user.id})}).catch(()=>{});
     setAtDest(false);setOrderMode(null);setStartTime(null);
     setTab("historial");
   };
@@ -1868,6 +1887,158 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 
+
+// ─── LIVE TRACKING PAGE ──────────────────────────────────────────────────────
+function LiveTracking({techs,clients,mapsKey}){
+  const [positions,setPositions]=useState([]);
+  const [selected,setSelected]=useState(null);
+  const mapRef=useRef(null);
+  const markersRef=useRef({});
+  const mapObjRef=useRef(null);
+
+  // Poll every 5 seconds
+  useEffect(()=>{
+    const load=async()=>{
+      try{
+        const data=await fetch("/api/gps/live").then(r=>r.json());
+        setPositions(data);
+      }catch(e){}
+    };
+    load();
+    const interval=setInterval(load,5000);
+    return()=>clearInterval(interval);
+  },[]);
+
+  // Update Google Maps markers
+  useEffect(()=>{
+    if(!mapsKey||!window.google?.maps) return;
+    if(!mapObjRef.current&&mapRef.current){
+      mapObjRef.current=new window.google.maps.Map(mapRef.current,{
+        zoom:12,center:{lat:14.0999,lng:-87.2062},
+        mapTypeControl:false,streetViewControl:false,
+        styles:[{featureType:"poi",stylers:[{visibility:"off"}]}]
+      });
+    }
+    if(!mapObjRef.current) return;
+    const map=mapObjRef.current;
+    const activeIds=new Set(positions.map(p=>p.technicianId));
+    
+    // Remove markers for offline techs
+    Object.keys(markersRef.current).forEach(id=>{
+      if(!activeIds.has(id)){markersRef.current[id].setMap(null);delete markersRef.current[id];}
+    });
+
+    // Add/update markers
+    positions.forEach(pos=>{
+      const tech=techs.find(t=>t.id===pos.technicianId);
+      const label=tech?.name.split(" ").map(w=>w[0]).join("").slice(0,2)||"??";
+      if(!markersRef.current[pos.technicianId]){
+        markersRef.current[pos.technicianId]=new window.google.maps.Marker({
+          position:{lat:pos.lat,lng:pos.lng},map,
+          label:{text:label,color:"white",fontWeight:"bold",fontSize:"11px"},
+          icon:{path:window.google.maps.SymbolPath.CIRCLE,fillColor:"#185FA5",fillOpacity:1,strokeColor:"white",strokeWeight:2,scale:18}
+        });
+        markersRef.current[pos.technicianId].addListener("click",()=>setSelected(pos.technicianId));
+      } else {
+        markersRef.current[pos.technicianId].setPosition({lat:pos.lat,lng:pos.lng});
+      }
+    });
+
+    // Auto-fit bounds
+    if(positions.length>0){
+      const bounds=new window.google.maps.LatLngBounds();
+      positions.forEach(p=>bounds.extend({lat:p.lat,lng:p.lng}));
+      map.fitBounds(bounds,{top:60,right:40,bottom:40,left:40});
+    }
+  },[positions,mapsKey,techs]);
+
+  const selectedPos=positions.find(p=>p.technicianId===selected);
+  const selectedTech=techs.find(t=>t.id===selected);
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:20,color:"var(--text)"}}>🗺️ Tracking en vivo</div>
+          <div style={{fontSize:13,color:"var(--text2)",marginTop:2}}>{positions.length} técnico{positions.length!==1?"s":""} en ruta · actualiza cada 5s</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#1D9E75",animation:"pulse 2s infinite"}}/>
+          <span style={{fontSize:12,color:"#1D9E75",fontWeight:600}}>En vivo</span>
+        </div>
+      </div>
+
+      {/* Map */}
+      {mapsKey?(
+        <div ref={mapRef} style={{width:"100%",height:400,borderRadius:12,border:"1px solid var(--border)",marginBottom:16,overflow:"hidden"}}/>
+      ):(
+        <div style={{background:"var(--surface)",borderRadius:12,padding:40,textAlign:"center",marginBottom:16,border:"1px solid var(--border)"}}>
+          <div style={{fontSize:24,marginBottom:8}}>🗺️</div>
+          <div style={{fontSize:14,color:"var(--text2)"}}>Configura Google Maps API Key en Ajustes para ver el mapa</div>
+        </div>
+      )}
+
+      {/* Technician list */}
+      {positions.length===0?(
+        <div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)",fontSize:14}}>
+          <div style={{fontSize:32,marginBottom:8}}>📍</div>
+          Sin técnicos en ruta ahora mismo
+        </div>
+      ):(
+        <div>
+          {positions.map(pos=>{
+            const tech=techs.find(t=>t.id===pos.technicianId);
+            const isSelected=selected===pos.technicianId;
+            return(
+              <div key={pos.technicianId} onClick={()=>setSelected(isSelected?null:pos.technicianId)}
+                style={{background:isSelected?"#E6F1FB":"var(--card)",border:`1px solid ${isSelected?"#185FA5":"var(--border)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,cursor:"pointer",transition:"all 0.2s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <Avatar initials={tech?.name.split(" ").map(w=>w[0]).join("").slice(0,2)||"??"} color={tech?.color||"blue"} size={36}/>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{tech?.name||"Técnico"}</div>
+                      <div style={{fontSize:12,color:"#1D9E75",marginTop:1}}>🟢 En ruta · {pos.km?.toFixed?.(1)||0} km</div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:11,color:"var(--text2)"}}>Hace {Math.round((Date.now()-new Date(pos.timestamp).getTime())/1000)}s</div>
+                    <button onClick={e=>{e.stopPropagation();window.open(`https://www.google.com/maps?q=${pos.lat},${pos.lng}`,"_blank");}} style={{fontSize:11,background:"#185FA5",color:"white",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",marginTop:4}}>📍 Ver</button>
+                  </div>
+                </div>
+                {isSelected&&(
+                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid var(--border)"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",marginBottom:3}}>Destino</div>
+                        <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{pos.clientName||pos.destName||"—"}</div>
+                      </div>
+                      <div style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",marginBottom:3}}>Tipo de visita</div>
+                        <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{pos.tripType||"—"}</div>
+                      </div>
+                      <div style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",marginBottom:3}}>Km recorridos</div>
+                        <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{pos.km?.toFixed?.(1)||0} km</div>
+                      </div>
+                      <div style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",marginBottom:3}}>Última posición</div>
+                        <div style={{fontSize:12,color:"var(--text)"}}>{pos.lat?.toFixed?.(4)}, {pos.lng?.toFixed?.(4)}</div>
+                      </div>
+                    </div>
+                    <button onClick={e=>{e.stopPropagation();window.open(`https://www.google.com/maps/dir/?api=1&destination=${pos.lat},${pos.lng}`,"_blank");}} style={{width:"100%",marginTop:8,background:"#185FA5",color:"white",border:"none",borderRadius:8,padding:"9px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                      🗺️ Abrir en Google Maps
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ADMIN REPORTS PAGE ──────────────────────────────────────────────────────
 function AdminReports({reports,techs,clients}){
   const [filterTech,setFilterTech]=useState("all");
@@ -1991,6 +2162,7 @@ function App(){
   const adminNav=[
     {id:"dashboard",l:"Panel",i:"📊"},
     {id:"viajes",l:"Viajes",i:"🚗"},
+    {id:"tracking",l:"En vivo",i:"🗺️"},
     {id:"reportes",l:"Reportes",i:"📄"},
     {id:"inventario",l:"Inventario",i:"📦"},
     {id:"clientes",l:"Clientes",i:"🏥"},
@@ -2056,6 +2228,7 @@ function App(){
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
+            {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
             {page==="mis_reportes"&&!isAdmin&&<AdminReports reports={reports.filter(r=>r.technicianId===user.id)} techs={techs} clients={clients} soloMio={true}/>}
             {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onSaveFuelPrices={saveFuelPrices}/>}

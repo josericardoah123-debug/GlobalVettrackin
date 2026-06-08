@@ -10,7 +10,20 @@ try:
 except ImportError:
     HAS_PG = False
 
+try:
+    from flask_sock import Sock
+    HAS_WS = True
+except ImportError:
+    HAS_WS = False
+
 app = Flask(__name__, static_folder="static")
+if HAS_WS:
+    sock = Sock(app)
+
+# In-memory store for live positions
+# {tech_id: {lat, lng, heading, km, destName, tripType, timestamp}}
+live_positions = {}
+ws_clients = {}  # {tech_id: [ws_connections]}
 DB = os.path.join(os.path.dirname(__file__), "labtrack.db")
 DATABASE_URL = os.environ.get("DATABASE_URL","")
 if DATABASE_URL.startswith("postgres://"):
@@ -408,6 +421,43 @@ window.addEventListener('load', function() {{
 <div class="footer">DIPRODI · Residencial Plaza, Casa No.1, Bloque 32, Tegucigalpa · Telefax: 2230-7121</div>
 </body></html>"""
     return Response(html, mimetype='text/html')
+
+# ─── GPS TRACKING ─────────────────────────────────────────────────────────────
+@app.route("/api/gps/update", methods=["POST"])
+def update_gps():
+    """Technician sends their live position"""
+    d = request.get_json()
+    tech_id = d.get("technicianId")
+    if not tech_id:
+        return jsonify({"error": "No technicianId"}), 400
+    
+    pos = {
+        "technicianId": tech_id,
+        "lat": d.get("lat"),
+        "lng": d.get("lng"),
+        "km": d.get("km", 0),
+        "destName": d.get("destName", ""),
+        "tripType": d.get("tripType", ""),
+        "clientName": d.get("clientName", ""),
+        "status": "en_ruta",
+        "timestamp": datetime.now().isoformat()
+    }
+    live_positions[tech_id] = pos
+    return jsonify({"ok": True})
+
+@app.route("/api/gps/clear", methods=["POST"])
+def clear_gps():
+    """Technician finished trip — remove from live"""
+    d = request.get_json()
+    tech_id = d.get("technicianId")
+    if tech_id and tech_id in live_positions:
+        del live_positions[tech_id]
+    return jsonify({"ok": True})
+
+@app.route("/api/gps/live")
+def get_live():
+    """Admin polls for all live technician positions"""
+    return jsonify(list(live_positions.values()))
 
 # ─── STATIC ───────────────────────────────────────────────────────────────────
 @app.route("/")
