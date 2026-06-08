@@ -1919,6 +1919,7 @@ function App(){
   const adminNav=[
     {id:"dashboard",l:"Panel",i:"📊"},
     {id:"viajes",l:"Viajes",i:"🚗"},
+    {id:"reportes",l:"Reportes",i:"📄"},
     {id:"inventario",l:"Inventario",i:"📦"},
     {id:"clientes",l:"Clientes",i:"🏥"},
     {id:"tecnicos",l:"Técnicos",i:"👷"},
@@ -1927,6 +1928,7 @@ function App(){
   const techNav=[
     {id:"app",l:"Mi App",i:"📱"},
     {id:"viajes",l:"Mis Viajes",i:"🚗"},
+    {id:"mis_reportes",l:"Mis Reportes",i:"📄"},
   ];
   const nav=isAdmin?adminNav:techNav;
   const pendingCount=trips.filter(t=>t.status==="pendiente").length;
@@ -1983,6 +1985,7 @@ function App(){
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
+            {page==="mis_reportes"&&!isAdmin&&<AdminReports reports={reports.filter(r=>r.technicianId===user.id)} techs={techs} clients={clients} soloMio={true}/>}
             {page==="ajustes"   &&isAdmin&&<Ajustes rate={rate} onSaveRate={saveRate} mapsKey={mapsKey} onSaveMapsKey={saveMapsKey} companyName={companyName} onSaveCompany={saveCompany} dark={dark} setDark={setDark} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onSaveFuelPrices={saveFuelPrices}/>}
           </>}
         </div>
