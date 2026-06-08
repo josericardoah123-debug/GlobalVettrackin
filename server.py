@@ -246,8 +246,22 @@ def add_trip():
     d=request.get_json(); tid="trip_"+uuid.uuid4().hex[:10]
     o=d.get("origin",{}); dest=d.get("destination",{})
     conn=get_db()
+    km = float(d.get("km",0))
+    # Get technician vehicle data for fuel calculation
+    cur_tech = ex(conn, "SELECT rendimiento, tipo_combustible FROM users WHERE id=?", (d["technicianId"],))
+    tech_data = r2d(cur_tech.fetchone()) or {}
+    rendimiento = float(tech_data.get("rendimiento") or 12)
+    tipo_comb = tech_data.get("tipo_combustible") or "gasolina"
+    # Get fuel price from settings
+    cur_set = ex(conn, "SELECT value FROM settings WHERE key=?", (f"fuel_{tipo_comb}_price",))
+    price_row = r2d(cur_set.fetchone())
+    fuel_price = float(price_row["value"]) if price_row else 95.0
+    # Calculate: km / rendimiento * price_per_liter
+    litros = km / rendimiento if rendimiento > 0 else 0
+    reimbursement = round(litros * fuel_price, 2)
+    
     ex(conn,"INSERT INTO trips(id,technician_id,client_id,date,trip_type,equipment_ids,origin_lat,origin_lng,origin_label,destination_lat,destination_lng,destination_label,stops,route_points,start_time,end_time,km,reimbursement,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-       (tid,d["technicianId"],d["clientId"],d["date"],d.get("tripType","entrega"),json.dumps(d.get("equipmentIds",[])),o.get("lat"),o.get("lng"),o.get("label",""),dest.get("lat"),dest.get("lng"),dest.get("label",""),json.dumps(d.get("stops",[])),json.dumps(d.get("routePoints",[])),d.get("startTime",""),d.get("endTime",""),float(d.get("km",0)),float(d.get("reimbursement",0)),d.get("notes","")))
+       (tid,d["technicianId"],d["clientId"],d["date"],d.get("tripType","entrega"),json.dumps(d.get("equipmentIds",[])),o.get("lat"),o.get("lng"),o.get("label",""),dest.get("lat"),dest.get("lng"),dest.get("label",""),json.dumps(d.get("stops",[])),json.dumps(d.get("routePoints",[])),d.get("startTime",""),d.get("endTime",""),km,reimbursement,d.get("notes","")))
     ex(conn,"UPDATE users SET status='available',current_trip_id=NULL WHERE id=?",(d["technicianId"],))
     conn.commit()
     cur=ex(conn,"SELECT * FROM trips WHERE id=?",(tid,))
@@ -334,6 +348,28 @@ def report_pdf(rid):
     cal="Sí" if rep.get("calibracion")==1 else "No" if rep.get("calibracion")==0 else "—"
     cc="Sí" if rep.get("controlCalidad")==1 else "No" if rep.get("controlCalidad")==0 else "—"
     sig=f'<img src="{rep["sigData"]}" style="max-width:100%;max-height:80px;"/>' if rep.get("sigData") and rep.get("signed") else "<p style='color:#999'>Sin firma</p>"
+    # Check how many equipment items were in this visit
+    conn2 = get_db()
+    # Get trip equipment IDs
+    trip_equips = []
+    if rep.get("tripId"):
+        cur_trip = ex(conn2, "SELECT equipment_ids FROM trips WHERE id=?", (rep.get("tripId",""),))
+        trip_row = r2d(cur_trip.fetchone())
+        if trip_row:
+            import json as _json
+            trip_equips = _json.loads(trip_row.get("equipment_ids","[]"))
+    # Get equipment details
+    equip_details = []
+    for eq_id in trip_equips:
+        cur_eq = ex(conn2, "SELECT * FROM inventory WHERE id=?", (eq_id,))
+        eq = r2d(cur_eq.fetchone())
+        if eq: equip_details.append(eq)
+    conn2.close()
+    
+    # If no equipment from trip, use the report's marca/modelo/serie
+    if not equip_details:
+        equip_details = [{"name": rep.get("marca",""), "model": rep.get("modelo",""), "serial": rep.get("serie","")}]
+
     html=f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><title>Reporte {rep['reportNum']}</title>
 <style>*{{box-sizing:border-box;margin:0;padding:0;}}body{{font-family:Arial,sans-serif;padding:24px;font-size:13px;color:#222;}}
 .header{{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0F6E56;padding-bottom:14px;margin-bottom:18px;}}
@@ -365,7 +401,7 @@ window.addEventListener('load', function() {{
 <div class="header"><div class="logo"><img class="logo-img" src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" alt="DIPRODI" onerror="this.style.display='none'"/><div><div style="font-weight:700;font-size:16px;color:#0F6E56;">DIPRODI</div><div style="font-size:11px;color:#555;">Reporte de visita técnica</div></div></div><div class="rnum">{rep['reportNum']}</div></div>
 <div class="sec"><div class="st">📋 Número de reporte</div><div class="g4"><div><div class="fl">Número</div><div class="fv" style="color:#0F6E56;">{rep['reportNum']}</div></div><div><div class="fl">Fecha</div><div class="fv">{rep['fecha']}</div></div><div><div class="fl">Hora llegada</div><div class="fv">{rep['horaLlegada'] or '—'}</div></div><div><div class="fl">Hora salida</div><div class="fv">{rep['horaSalida'] or '—'}</div></div></div></div>
 <div class="sec"><div class="st">👤 Técnico y cliente</div><div class="g2"><div><div class="fl">Técnico</div><div class="fv" style="color:#0F6E56;">✓ {tname}</div></div><div><div class="fl">Cliente</div><div class="fv" style="color:#0F6E56;">✓ {cname} — {ccity}</div></div></div></div>
-<div class="sec"><div class="st">🔧 Equipo revisado</div><div class="g3"><div><div class="fl">Marca</div><div class="fv">{rep['marca'] or '—'}</div></div><div><div class="fl">Modelo</div><div class="fv">{rep['modelo'] or '—'}</div></div><div><div class="fl">No. de serie</div><div class="fv">{rep['serie'] or '—'}</div></div></div></div>
+{"".join([f'''<div class="sec" style="page-break-inside:avoid;"><div class="st">🔧 Equipo revisado {f"({i+1} de {len(equip_details)})" if len(equip_details)>1 else ""}</div><div class="g3"><div><div class="fl">Marca</div><div class="fv">{eq.get("name","—")}</div></div><div><div class="fl">Modelo</div><div class="fv">{eq.get("model","—")}</div></div><div><div class="fl">No. de serie</div><div class="fv">{eq.get("serial","—")}</div></div></div></div>{"<div style=\'page-break-after:always;\'></div>" if i<len(equip_details)-1 and len(equip_details)>1 else ""}''' for i,eq in enumerate(equip_details)])}
 <div class="sec"><div class="st">📝 Detalle de la visita</div><div style="margin-bottom:10px;"><div class="fl">Condición del equipo</div><div class="fa">{rep['condicion'] or '—'}</div></div><div style="margin-bottom:10px;"><div class="fl">Reparaciones efectuadas</div><div class="fa">{rep['reparaciones'] or '—'}</div></div><div><div class="fl">Repuestos utilizados</div><div class="fa">{rep['repuestos'] or '—'}</div></div></div>
 <div class="sec"><div class="st">✅ Control de calidad</div><div style="display:flex;gap:40px;"><div><div style="font-size:11px;font-weight:600;margin-bottom:5px;">Calibración</div><div>{'☑' if cal=='Sí' else '☐'} Sí &nbsp; {'☑' if cal=='No' else '☐'} No</div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:5px;">Control de calidad</div><div>{'☑' if cc=='Sí' else '☐'} Sí &nbsp; {'☑' if cc=='No' else '☐'} No</div></div></div></div>
 <div class="sec"><div class="st">✍️ Firmas</div><div class="g2"><div><div class="fl" style="margin-bottom:6px;">Técnico encargado</div><div class="sig"><div style="font-size:13px;font-weight:600;">{tname}</div></div></div><div><div class="fl" style="margin-bottom:6px;">Firma del cliente</div><div class="sig">{sig}<div style="font-size:10px;color:#{'0F6E56' if rep.get('signed') else '999'};margin-top:4px;">{'Firmado: '+rep['sigTime'] if rep.get('signed') else 'Sin firma'}</div></div></div></div></div>

@@ -332,7 +332,12 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuel
         );
       })()}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
-        {[{l:"Fecha",v:trip.date},{l:"Distancia",v:`${trip.km} km`},{l:"Reembolso km",v:`L. ${fmt(trip.reimbursement)}`},{l:"Tipo",v:trip.tripType}].map(m=>(
+        {(()=>{
+          const tech2=techs.find(t=>t.id===trip.technicianId);
+          const rend=+(tech2?.rendimiento||12);
+          const litros=rend>0?(trip.km/rend):0;
+          return [{l:"Fecha",v:trip.date},{l:"Distancia",v:`${trip.km} km`},{l:"Combustible",v:`${litros.toFixed(1)} L`},{l:"Reembolso",v:`L. ${fmt(trip.reimbursement)}`}];
+        })().map(m=>(
           <div key={m.l} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px"}}>
             <div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em"}}>{m.l}</div>
             <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginTop:4}}>{m.v}</div>
@@ -368,7 +373,7 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuel
       {trip.notes&&<div style={{background:"var(--surface)",borderRadius:8,padding:"12px 14px",marginBottom:14}}><div style={{fontSize:11,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Notas</div><div style={{fontSize:13,color:"var(--text)",lineHeight:1.7}}>{trip.notes}</div></div>}
       
       {/* Report preview link */}
-      {trip.reportId&&(
+      {trip.reportId?(
         <div style={{background:"#E1F5EE",border:"1px solid #5DCAA5",borderRadius:10,padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:12,fontWeight:700,color:"#0F6E56"}}>📋 Reporte de visita adjunto</div>
@@ -377,6 +382,10 @@ function TripDetail({trip,techs,clients,inventory,onClose,onApprove,mapsKey,fuel
           <button onClick={()=>window.open(`/api/reports/${trip.reportId}/pdf`,"_blank")} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
             📄 Ver PDF
           </button>
+        </div>
+      ):(
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",marginBottom:14}}>
+          <div style={{fontSize:12,color:"var(--text2)"}}>📋 Sin reporte de visita adjunto</div>
         </div>
       )}
 
@@ -829,6 +838,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
   const [controlCalidad,setControlCalidad]=useState(null);
   const [signed,setSigned]=useState(false);
   const [sigTime,setSigTime]=useState("");
+  const [countdown,setCountdown]=useState(0);
   const canvasRef=useRef(null);
   const drawingRef=useRef(false);
   const sigLockedRef=useRef(false);
@@ -888,17 +898,37 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
     ctx.lineTo(p.x,p.y);ctx.stroke();
   };
 
+  const autoLockTimerRef=useRef(null);
   const endDraw=()=>{
     drawingRef.current=false;
-    // Don't lock automatically — user must click confirm button
+    // Start 30-second countdown after user lifts finger
+    if(signed&&!sigLockedRef.current){
+      if(autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current);
+      setCountdown(30);
+      autoLockTimerRef.current=setTimeout(()=>{
+        // Auto-lock after 30 seconds of no movement
+        sigLockedRef.current=true;
+        const ts=p2(new Date());
+        setSigTime(ts);
+        setCountdown(0);
+      },30000);
+      // Countdown timer
+      let c=30;
+      const countInterval=setInterval(()=>{
+        c--;
+        setCountdown(c);
+        if(c<=0) clearInterval(countInterval);
+      },1000);
+    }
   };
 
   const clearSig=()=>{
     const canvas=canvasRef.current;
     const ctx=canvas.getContext("2d");
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    setSigned(false);setSigTime("");
+    setSigned(false);setSigTime("");setCountdown(0);
     sigLockedRef.current=false;
+    if(autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current);
   };
 
   const handleSave=async()=>{
@@ -1143,10 +1173,12 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
               {signed&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.03)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,pointerEvents:"none"}}><div style={{fontSize:12,color:"#0F6E56",fontWeight:600}}>🔒 Firma registrada</div></div>}
             </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
-              <div style={{fontSize:11,color:"#0F6E56"}}>{sigLockedRef.current?`⏰ Hora de salida: ${sigTime}`:signed?"Dibujando firma...":""}</div>
+              <div style={{fontSize:11,color:sigLockedRef.current?"#0F6E56":countdown>0?"#EF9F27":"var(--text2)"}}>
+                {sigLockedRef.current?`⏰ Hora de salida: ${sigTime}`:countdown>0?`⏱ Se confirma en ${countdown}s automáticamente`:signed?"Firma en progreso...":""}
+              </div>
               <div style={{display:"flex",gap:6}}>
                 {!sigLockedRef.current&&<button onClick={clearSig} style={{fontSize:11,color:"var(--text2)",background:"none",border:"1px solid var(--border)",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}>🧹 Limpiar</button>}
-                {signed&&!sigLockedRef.current&&<button onClick={()=>{sigLockedRef.current=true;const ts=p2(new Date());setSigTime(ts);}} style={{fontSize:11,color:"white",background:"#0F6E56",border:"none",borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:700}}>✓ Confirmar firma</button>}
+                {signed&&!sigLockedRef.current&&<button onClick={()=>{if(autoLockTimerRef.current)clearTimeout(autoLockTimerRef.current);sigLockedRef.current=true;const ts=p2(new Date());setSigTime(ts);setCountdown(0);}} style={{fontSize:11,color:"white",background:"#0F6E56",border:"none",borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:700}}>✓ Confirmar ahora</button>}
               </div>
             </div>
           </div>
@@ -1396,7 +1428,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       destination:{lat:client?.lat||lastPt?.[0]||0,lng:client?.lng||lastPt?.[1]||0,label:client?`${client.name}, ${client.city}`:"Destino"},
       stops:tripStops,routePoints:gpsPts,
       startTime:p2(startTime||now),endTime:p2(now),
-      km:finalKm,reimbursement:+(finalKm*rate).toFixed(2),
+      km:finalKm,reimbursement:0, // Server calculates based on fuel
       notes:validDests.map(d=>d.notes).filter(Boolean).join(" | ")||"Viaje completado.",
       reportId:finalReportId,
       reportNum:finalReportNum
@@ -1408,7 +1440,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   };
 
   const mins=Math.floor(elapsed/60),secs=elapsed%60;
-  const reimb=+(km*rate).toFixed(2);
+  const rendEmp=+(user?.rendimiento||12);
+  const fuelPriceEmp=user?.tipoCombustible==="diesel"?fuelDieselPrice:fuelGasPrice;
+  const reimb=+((km/rendEmp)*fuelPriceEmp).toFixed(2);
   const hora=new Date().getHours();
   const validDests=destinations.filter(d=>d.clientId);
 
@@ -1649,9 +1683,13 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
                   })}
                 </div>
 
-                <div style={{background:"#EEEDFE",borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div><div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em"}}>Reembolso estimado</div><div style={{fontSize:20,fontWeight:800,color:"#26215C",marginTop:1,fontFamily:"'DM Mono',monospace"}}>L. {fmt(reimb)}</div></div>
-                  <div style={{fontSize:11,color:"#534AB7"}}>@ L.{rate.toFixed(2)}/km</div>
+                <div style={{background:"#EEEDFE",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+                  <div style={{fontSize:11,color:"#3C3489",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Reembolso estimado (combustible)</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
+                    <div><div style={{color:"#534AB7"}}>Km recorridos</div><div style={{fontWeight:700,color:"#26215C",fontFamily:"monospace"}}>{km.toFixed(1)} km</div></div>
+                    <div><div style={{color:"#534AB7"}}>Litros usados</div><div style={{fontWeight:700,color:"#26215C",fontFamily:"monospace"}}>{((km/(user?.rendimiento||12))).toFixed(1)} L</div></div>
+                    <div><div style={{color:"#534AB7"}}>Costo estimado</div><div style={{fontWeight:800,color:"#26215C",fontFamily:"monospace",fontSize:13}}>L.{fmt(reimb)}</div></div>
+                  </div>
                 </div>
 
                 <button onClick={end} style={{width:"100%",background:"#993C1D",color:"white",border:"none",borderRadius:14,padding:"13px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
