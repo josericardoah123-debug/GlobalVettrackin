@@ -275,6 +275,15 @@ def add_trip():
     
     ex(conn,"INSERT INTO trips(id,technician_id,client_id,date,trip_type,equipment_ids,origin_lat,origin_lng,origin_label,destination_lat,destination_lng,destination_label,stops,route_points,start_time,end_time,km,reimbursement,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
        (tid,d["technicianId"],d["clientId"],d["date"],d.get("tripType","entrega"),json.dumps(d.get("equipmentIds",[])),o.get("lat"),o.get("lng"),o.get("label",""),dest.get("lat"),dest.get("lng"),dest.get("label",""),json.dumps(d.get("stops",[])),json.dumps(d.get("routePoints",[])),d.get("startTime",""),d.get("endTime",""),km,reimbursement,d.get("notes","")))
+    
+    # Auto-link most recent report from this technician today
+    today = datetime.now().strftime("%Y-%m-%d")
+    cur_rep = ex(conn, "SELECT id, report_num FROM visit_reports WHERE technician_id=? AND fecha LIKE ? ORDER BY created_at DESC LIMIT 1", (d["technicianId"], f"%{today}%"))
+    rep_row = r2d(cur_rep.fetchone())
+    if rep_row:
+        ex(conn, "UPDATE trips SET report_id=?, report_num=? WHERE id=?", (rep_row["id"], rep_row["report_num"], tid))
+        ex(conn, "UPDATE visit_reports SET trip_id=? WHERE id=?", (tid, rep_row["id"]))
+    
     ex(conn,"UPDATE users SET status='available',current_trip_id=NULL WHERE id=?",(d["technicianId"],))
     conn.commit()
     cur=ex(conn,"SELECT * FROM trips WHERE id=?",(tid,))
