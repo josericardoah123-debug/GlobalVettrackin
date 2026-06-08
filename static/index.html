@@ -1190,6 +1190,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   const timerRef=useRef(null);
   const destTimerRef=useRef(null);
   const wakeLockRef=useRef(null);
+  const reportIdRef=useRef(null);
+  const reportNumRef=useRef(null);
   const myTrips=trips.filter(t=>t.technicianId===user.id);
   const initials=user.name.split(" ").map(w=>w[0]).join("").slice(0,2);
   const thisMonth=new Date().toISOString().slice(0,7);
@@ -1382,8 +1384,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     const tripReports=Object.values(reportData);
     const firstReport=tripReports[0];
     // Use lastReportId as fallback
-    const finalReportId=lastReportId||firstReport?.reportId||null;
-    const finalReportNum=lastReportNum||firstReport?.reportNum||null;
+    const finalReportId=reportIdRef.current||lastReportId||firstReport?.reportId||null;
+    const finalReportNum=reportNumRef.current||lastReportNum||firstReport?.reportNum||null;
+    console.log("Linking report:", finalReportId, "to trip");
     const savedTrip=await onSaveTrip({
       technicianId:user.id,clientId:mainDest?.clientId||validDests[0]?.clientId,
       date:now.toISOString().slice(0,10),
@@ -1399,7 +1402,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       reportNum:finalReportNum
     });
     setKm(0);setDestinations([{clientId:"",equipIds:[],type:"entrega",notes:""}]);
-    setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);setLastReportId(null);setLastReportNum(null);setReportData({});
+    setGpsPts([]);setElapsed(0);setDestTimers({});setCurrentDestIdx(0);setLastReportId(null);setLastReportNum(null);setReportData({});reportIdRef.current=null;reportNumRef.current=null;
     setAtDest(false);setOrderMode(null);setStartTime(null);
     setTab("historial");
   };
@@ -1738,8 +1741,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
             inventory={inventory}
             onSave={(data)=>{
               setReportData(prev=>({...prev,[reportModal.destIdx]:data}));
-              if(data.reportId) setLastReportId(data.reportId);
-              if(data.reportNum) setLastReportNum(data.reportNum);
+              if(data.reportId){setLastReportId(data.reportId);reportIdRef.current=data.reportId;}
+              if(data.reportNum){setLastReportNum(data.reportNum);reportNumRef.current=data.reportNum;}
               confirmDepart(reportModal.destIdx);
             }}
             onClose={()=>setReportModal(null)}
