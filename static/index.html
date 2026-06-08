@@ -1879,7 +1879,7 @@ function App(){
 
   const loadAll=async()=>{
     try{
-      const [t,i,c,tr,s]=await Promise.all([API.get("/api/technicians"),API.get("/api/inventory"),API.get("/api/clients"),API.get("/api/trips"),API.get("/api/settings")]);
+      const [t,i,c,tr,s]=await Promise.all([API.get("/api/users"),API.get("/api/inventory"),API.get("/api/clients"),API.get("/api/trips"),API.get("/api/settings")]);
       setTechs(t);setInventory(i);setClients(c);setTrips(tr);
       if(s.rate_per_km) setRate(parseFloat(s.rate_per_km));
       if(s.maps_api_key) setMapsKey(s.maps_api_key);
@@ -1904,7 +1904,7 @@ function App(){
   const saveMapsKey=async v=>{await API.post("/api/settings",{maps_api_key:v});setMapsKey(v);showToast("API Key guardada ✓");};
   const saveCompany=async v=>{await API.post("/api/settings",{company_name:v});setCompanyName(v);showToast("Nombre guardado ✓");};
   const saveFuelPrices=async(gas,diesel)=>{await API.post("/api/settings",{fuel_gas_price:gas,fuel_diesel_price:diesel});setFuelGasPrice(gas);setFuelDieselPrice(diesel);showToast("Precios de combustible guardados ✓");};
-  const addTech=async d=>{const t=await API.post("/api/technicians",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
+  const addTech=async d=>{const t=await API.post("/api/users",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
   const addInventory=async d=>{const eq=await API.post("/api/inventory",d);setInventory(p=>[...p,eq]);showToast("Equipo agregado ✓");};
   const addClient=async d=>{const c=await API.post("/api/clients",d);setClients(p=>[...p,c]);showToast("Cliente agregado ✓");};
   const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");};
