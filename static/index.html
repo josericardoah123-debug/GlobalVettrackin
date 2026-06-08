@@ -1245,7 +1245,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
 
   // Sort destinations by distance (nearest first or farthest first)
   const sortDestinations=(mode)=>{
-    const validDests=destinations.filter(d=>d.clientId);
+    const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
     if(validDests.length<2){setOrderMode("done");return;}
     const OFFICE={lat:14.0999,lng:-87.2062}; // Tegucigalpa office approx
     const withDist=validDests.map(d=>{
@@ -1262,18 +1262,21 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
 
   // Open Google Maps with all destinations in order
   const openGoogleMaps=(fromIdx=0,userLat=null,userLng=null)=>{
-    const validDests=destinations.filter(d=>d.clientId);
+    const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
     if(validDests.length===0) return;
     const dest=validDests[fromIdx];
-    const cl=clients.find(c=>c.id===dest?.clientId);
-    if(!cl) return;
+    // For mandado, use the place coords; otherwise use client coords
+    const cl=dest?.type==="mandado"?null:clients.find(c=>c.id===dest?.clientId);
+    const destCoords=dest?.type==="mandado"?dest.mandadoPlace:cl;
+    if(!destCoords&&!cl) return;
     // Use current GPS location as origin if available
     const originStr=userLat&&userLng
       ?`${userLat},${userLng}`
       :""; // Empty = Google Maps uses current location
     const remaining=validDests.slice(fromIdx+1);
     if(remaining.length===0){
-      const destStr=cl.lat?`${cl.lat},${cl.lng}`:encodeURIComponent(`${cl.name} ${cl.city} Honduras`);
+      const dc=dest?.type==="mandado"?dest.mandadoPlace:cl;
+      const destStr=dc?.lat?`${dc.lat},${dc.lng}`:encodeURIComponent(`${dc?.name||""} ${dc?.city||""} Honduras`);
       const url=`https://www.google.com/maps/dir/?api=1${originStr?`&origin=${originStr}`:""}&destination=${destStr}&travelmode=driving`;
       window.open(url,'_blank');
     } else {
@@ -1306,9 +1309,10 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
             return prev;
           });
           // Send live position to server every update
-          const validDests=destinations.filter(d=>d.clientId);
+          const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
           const currentDest=validDests[currentDestIdx]||validDests[0];
-          const cl=clients.find(c=>c.id===currentDest?.clientId);
+          const cl=currentDest?.type==="mandado"?null:clients.find(c=>c.id===currentDest?.clientId);
+          const destNameLive=currentDest?.type==="mandado"?(currentDest.mandadoName||"Mandado"):cl?.name||"";
           fetch("/api/gps/update",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
@@ -1317,8 +1321,8 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
               lat:pos.coords.latitude,
               lng:pos.coords.longitude,
               km:km,
-              destName:cl?.name||"",
-              clientName:cl?.name||"",
+              destName:destNameLive,
+              clientName:destNameLive,
               tripType:currentDest?.type||""
             })
           }).catch(()=>{});
@@ -1396,7 +1400,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     setAtDest(false);
     setReportModal(null);
     const nextIdx=idx+1;
-    const validDests=destinations.filter(d=>d.clientId);
+    const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
     setCurrentDestIdx(nextIdx);
     // If there's a next destination, open Maps
     if(nextIdx<validDests.length){
@@ -1412,7 +1416,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     clearInterval(destTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
-    const validDests=destinations.filter(d=>d.clientId);
+    const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
     const mainDest=validDests[validDests.length-1]; // last = main destination
     const client=clients.find(c=>c.id===mainDest?.clientId);
     const finalKm=+km.toFixed(1)||1;
@@ -1463,7 +1467,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   const fuelPriceEmp=user?.tipoCombustible==="diesel"?fuelDieselPrice:fuelGasPrice;
   const reimb=+((km/rendEmp)*fuelPriceEmp).toFixed(2);
   const hora=new Date().getHours();
-  const validDests=destinations.filter(d=>d.clientId);
+  const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
 
   return(
     <div style={{maxWidth:400,margin:"0 auto"}}>
@@ -1529,15 +1533,28 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
                         <span style={{fontSize:12,fontWeight:700,color:idx===0?"var(--text)":"#854F0B"}}>{label}</span>
                         {idx>0&&<button onClick={()=>removeDestination(idx)} style={{background:"none",border:"none",cursor:"pointer",color:"#993C1D",fontSize:18,padding:0,lineHeight:1}}>×</button>}
                       </div>
-                      <Select value={dest.clientId} onChange={v=>updateDest(idx,"clientId",v)}>
-                        <option value="">Seleccionar cliente...</option>
-                        {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
-                      </Select>
-                      {user.role==="ventas"?(
-                        <div style={{marginTop:6,background:"#E6F1FB",borderRadius:7,padding:"6px 10px",fontSize:12,color:"#185FA5",fontWeight:600}}>🤝 Visita comercial (autoseleccionado)</div>
+                      {dest.type==="mandado"?(
+                        <div>
+                          <PlacesSearch apiKey={mapsKey} onSelect={place=>{
+                            updateDest(idx,"clientId","mandado_"+idx);
+                            updateDest(idx,"mandadoPlace",place);
+                            updateDest(idx,"mandadoName",place.name);
+                          }} placeholder="Buscar lugar en Google Maps..."/>
+                          {dest.mandadoName&&<div style={{fontSize:11,color:"#0F6E56",marginTop:3,padding:"5px 8px",background:"#E1F5EE",borderRadius:6}}>📍 {dest.mandadoName} — {dest.mandadoPlace?.address}</div>}
+                        </div>
                       ):(
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:6}}>
-                          {["mantenimiento","preventivo","instalación"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"5px 3px",borderRadius:7,border:"1px solid var(--border)",fontSize:10,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#EEEDFE":"transparent",color:dest.type===t?"#3C3489":"var(--text2)",textAlign:"center"}}>{t==="mantenimiento"?"🔧 Mant.":t==="preventivo"?"🔍 Prev.":"⚙️ Inst."}</button>)}
+                        <Select value={dest.clientId} onChange={v=>updateDest(idx,"clientId",v)}>
+                          <option value="">Seleccionar cliente...</option>
+                          {clients.map(c=><option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
+                        </Select>
+                      )}
+                      {user.role==="ventas"?(
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6}}>
+                          {["visita","mandado"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"5px 3px",borderRadius:7,border:"1px solid var(--border)",fontSize:10,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#E6F1FB":"transparent",color:dest.type===t?"#185FA5":"var(--text2)",textAlign:"center"}}>{t==="visita"?"🤝 Visita":"📬 Mandado"}</button>)}
+                        </div>
+                      ):(
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginTop:6}}>
+                          {["mantenimiento","preventivo","instalación","mandado"].map(t=><button key={t} onClick={()=>updateDest(idx,"type",t)} style={{padding:"5px 2px",borderRadius:7,border:"1px solid var(--border)",fontSize:9,cursor:"pointer",fontWeight:dest.type===t?700:400,background:dest.type===t?"#EEEDFE":"transparent",color:dest.type===t?"#3C3489":"var(--text2)",textAlign:"center"}}>{t==="mantenimiento"?"🔧 Mant.":t==="preventivo"?"🔍 Prev.":t==="instalación"?"⚙️ Inst.":"📬 Mandado"}</button>)}
                         </div>
                       )}
                       {/* Equipment selector */}
