@@ -276,9 +276,9 @@ def add_trip():
     ex(conn,"INSERT INTO trips(id,technician_id,client_id,date,trip_type,equipment_ids,origin_lat,origin_lng,origin_label,destination_lat,destination_lng,destination_label,stops,route_points,start_time,end_time,km,reimbursement,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
        (tid,d["technicianId"],d["clientId"],d["date"],d.get("tripType","entrega"),json.dumps(d.get("equipmentIds",[])),o.get("lat"),o.get("lng"),o.get("label",""),dest.get("lat"),dest.get("lng"),dest.get("label",""),json.dumps(d.get("stops",[])),json.dumps(d.get("routePoints",[])),d.get("startTime",""),d.get("endTime",""),km,reimbursement,d.get("notes","")))
     
-    # Auto-link most recent report from this technician today
+    # Auto-link most recent report from this technician today that is NOT yet linked to a trip
     today = datetime.now().strftime("%Y-%m-%d")
-    cur_rep = ex(conn, "SELECT id, report_num FROM visit_reports WHERE technician_id=? AND fecha LIKE ? ORDER BY created_at DESC LIMIT 1", (d["technicianId"], f"%{today}%"))
+    cur_rep = ex(conn, "SELECT id, report_num FROM visit_reports WHERE technician_id=? AND fecha LIKE ? AND (trip_id IS NULL OR trip_id='') ORDER BY created_at DESC LIMIT 1", (d["technicianId"], f"%{today}%"))
     rep_row = r2d(cur_rep.fetchone())
     if rep_row:
         ex(conn, "UPDATE trips SET report_id=?, report_num=? WHERE id=?", (rep_row["id"], rep_row["report_num"], tid))
@@ -339,8 +339,8 @@ def save_report():
     cal=1 if d.get("calibracion")==True else (0 if d.get("calibracion")==False else None)
     cc=1 if d.get("controlCalidad")==True else (0 if d.get("controlCalidad")==False else None)
     tech_id = d.get("technicianId","")
-    # Find latest trip from this technician to auto-link
-    cur2 = ex(conn, "SELECT id FROM trips WHERE technician_id=? ORDER BY created_at DESC LIMIT 1", (tech_id,))
+    # Find latest trip from this technician that doesn't have a report yet
+    cur2 = ex(conn, "SELECT id FROM trips WHERE technician_id=? AND (report_id IS NULL OR report_id='') ORDER BY created_at DESC LIMIT 1", (tech_id,))
     latest_trip = r2d(cur2.fetchone())
     auto_trip_id = latest_trip["id"] if latest_trip else d.get("tripId","")
     
