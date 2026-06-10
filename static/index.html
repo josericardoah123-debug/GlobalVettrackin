@@ -678,6 +678,79 @@ function Inventario({inventory,onAdd}){
 }
 
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
+
+// ─── CLIENT EDIT FORM ────────────────────────────────────────────────────────
+function ClientEditForm({client,onSave,onDelete,mapsKey}){
+  const [name,setName]=useState(client.name||"");
+  const [contact,setContact]=useState(client.contact||"");
+  const [phone,setPhone]=useState(client.phone||"");
+  const [email,setEmail]=useState(client.email||"");
+  const [city,setCity]=useState(client.city||"");
+  const [department,setDepartment]=useState(client.department||"");
+  const [type,setType]=useState(client.type||"Veterinaria");
+  const [address,setAddress]=useState(client.address||"");
+  const [lat,setLat]=useState(client.lat||"");
+  const [lng,setLng]=useState(client.lng||"");
+  const [saving,setSaving]=useState(false);
+  const acRef=useRef(null);
+  const inputRef=useRef(null);
+
+  // Google Places autocomplete for address
+  useEffect(()=>{
+    if(!mapsKey||!window.google?.maps?.places||!inputRef.current) return;
+    const ac=new window.google.maps.places.Autocomplete(inputRef.current,{
+      componentRestrictions:{country:"hn"},
+      fields:["formatted_address","geometry","name"]
+    });
+    ac.addListener("place_changed",()=>{
+      const place=ac.getPlace();
+      if(place.geometry){
+        setLat(place.geometry.location.lat());
+        setLng(place.geometry.location.lng());
+        setAddress(place.formatted_address||"");
+      }
+    });
+    acRef.current=ac;
+  },[mapsKey]);
+
+  const handleSave=async()=>{
+    setSaving(true);
+    await onSave({name,contact,phone,email,city,department,type,address,lat:+lat||null,lng:+lng||null});
+    setSaving(false);
+  };
+
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+        {[["Nombre",name,setName,"text"],["Persona de contacto",contact,setContact,"text"],
+          ["Teléfono",phone,setPhone,"tel"],["Email",email,setEmail,"email"],
+          ["Ciudad",city,setCity,"text"],["Departamento",department,setDepartment,"text"]
+        ].map(([l,v,s,t])=>(
+          <div key={l}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div>
+            <input type={t} value={v} onChange={e=>s(e.target.value)} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+          </div>
+        ))}
+      </div>
+      <div style={{marginBottom:8}}>
+        <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Tipo</div>
+        <select value={type} onChange={e=>setType(e.target.value)} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}>
+          {["Veterinaria","Clínica","Hospital","Laboratorio","Otro"].map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Dirección (busca en Google Maps)</div>
+        <input ref={inputRef} defaultValue={address} onChange={e=>setAddress(e.target.value)} placeholder="Buscar dirección..." style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+        {lat&&lng&&<div style={{fontSize:10,color:"#0F6E56",marginTop:3}}>📍 Coordenadas: {(+lat).toFixed(4)}, {(+lng).toFixed(4)}</div>}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn variant="danger" onClick={onDelete}>🗑️ Eliminar</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving?"Guardando...":"💾 Guardar cambios"}</Btn>
+      </div>
+    </div>
+  );
+}
+
 function Clientes({clients,onAdd,trips,inventory,mapsKey}){
   const [show,setShow]=useState(false);
   const [sel,setSel]=useState(null);
@@ -2319,19 +2392,36 @@ function DiprodInventario({mapsKey}){
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
 
-      // Map Excel columns to our format
+      // Smart column detection — finds columns by keywords regardless of exact name
+      const findCol=(row,keywords)=>{
+        const keys=Object.keys(row);
+        for(const kw of keywords){
+          const found=keys.find(k=>k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(kw.toLowerCase()));
+          if(found&&row[found]!==undefined&&row[found]!=="") return String(row[found]).trim();
+        }
+        return "";
+      };
+
       const equiposData=rows.map((r,i)=>({
-        num:r["#"]||r["Num"]||r["num"]||i+1,
-        localizacion:r["Localizacion"]||r["Localización"]||r["localizacion"]||"",
-        cliente:r["Veterinaria"]||r["Cliente"]||r["cliente"]||"",
-        tipo:r["Equipo"]||r["Tipo"]||r["tipo"]||"",
-        modelo:r["Modelo de Equipo"]||r["Modelo"]||r["modelo"]||"",
-        serie:r["# de serie"]||r["Serie"]||r["serie"]||"",
-        fechaIngreso:r["Fecha de ingreso"]||r["FechaIngreso"]||"",
-        fechaInstalacion:r["Fecha de instalación"]||r["FechaInstalacion"]||"",
-        versionSw:r["Version de software"]||r["Version"]||"",
-        comentarios:r["Comentarios"]||r["comentarios"]||"",
-      })).filter(r=>r.cliente&&r.cliente!=="Veterinaria");
+        num:+findCol(r,["#","num","numero","no."])||i+1,
+        localizacion:findCol(r,["localizacion","localización","ciudad","ubicacion","lugar","departamento"]),
+        cliente:findCol(r,["veterinaria","cliente","nombre","clinica","hospital","empresa"]),
+        tipo:findCol(r,["equipo","tipo","categoria","categoría"]),
+        modelo:findCol(r,["modelo","model"]),
+        serie:findCol(r,["serie","serial","# de serie","numero de serie","sn","s/n"]),
+        fechaIngreso:findCol(r,["ingreso","compra","entrada","adquisicion"]),
+        fechaInstalacion:findCol(r,["instalacion","instalación","install"]),
+        versionSw:findCol(r,["version","software","sw","firmware"]),
+        comentarios:findCol(r,["comentario","nota","observacion","descripcion"]),
+      })).filter(r=>r.cliente&&r.cliente.toLowerCase()!=="veterinaria"&&r.cliente.toLowerCase()!=="cliente");
+
+      if(equiposData.length===0){
+        // Show detected columns to help debug
+        const cols=Object.keys(rows[0]||{}).join(", ");
+        alert(`No se encontraron datos válidos.\n\nColumnas detectadas:\n${cols}\n\nAsegúrate de que haya una columna con el nombre del cliente/veterinaria.`);
+        setLoading(false);
+        return;
+      }
 
       if(equiposData.length===0){
         alert("No se encontraron datos válidos. Verifica que el Excel tenga las columnas correctas.");
@@ -2348,8 +2438,10 @@ function DiprodInventario({mapsKey}){
       let clientesCreados=0;
       for(const vet of veterinariasNuevas){
         try{
+          // Get city from equipment data
+          const eqForVet=equiposData.find(e=>e.cliente===vet);
           await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:"",department:"",type:"Veterinaria"})});
+            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:eqForVet?.localizacion||"",department:"",type:"Veterinaria"})});
           clientesCreados++;
         }catch(e){}
       }
@@ -2384,8 +2476,10 @@ function DiprodInventario({mapsKey}){
       let creados=0;
       for(const vet of vetsNuevas){
         try{
+          // Get city from equipment data
+          const eqForVet=equiposData.find(e=>e.cliente===vet);
           await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:"",department:"",type:"Veterinaria"})});
+            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:eqForVet?.localizacion||"",department:"",type:"Veterinaria"})});
           creados++;
         }catch(e){}
       }

@@ -241,6 +241,19 @@ def add_client():
     r=r2d(cur.fetchone()); conn.close()
     return jsonify({**r,"createdAt":r.pop("created_at",None)})
 
+@app.route("/api/clients/<cid>",methods=["PATCH"])
+def update_client(cid):
+    d=request.get_json(); conn=get_db(); fields,vals=[],[]
+    for k,col in [("name","name"),("contact","contact"),("phone","phone"),("email","email"),
+                  ("city","city"),("department","department"),("type","type"),
+                  ("address","address"),("lat","lat"),("lng","lng")]:
+        if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    if fields:
+        vals.append(cid); ex(conn,f"UPDATE clients SET {','.join(fields)} WHERE id=?",vals); conn.commit()
+    cur=ex(conn,"SELECT * FROM clients WHERE id=?",(cid,))
+    r=r2d(cur.fetchone()); conn.close()
+    return jsonify({**r,"createdAt":r.pop("created_at",None)})
+
 @app.route("/api/clients/<cid>",methods=["DELETE"])
 def delete_client(cid):
     conn=get_db(); ex(conn,"DELETE FROM clients WHERE id=?",(cid,)); conn.commit(); conn.close()
