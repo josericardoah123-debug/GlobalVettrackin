@@ -11,6 +11,7 @@
 <link rel="manifest" href="/manifest.json"/>
 <title>LabTrack</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -2306,11 +2307,89 @@ function DiprodInventario({mapsKey}){
     setLoading(false);
   };
 
+  const handleExcelUpload=async(e)=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    setLoading(true);
+    try{
+      // Use SheetJS to parse Excel
+      const XLSX=window.XLSX||await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+      const data=await file.arrayBuffer();
+      const wb=XLSX.read(data,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
+
+      // Map Excel columns to our format
+      const equiposData=rows.map((r,i)=>({
+        num:r["#"]||r["Num"]||r["num"]||i+1,
+        localizacion:r["Localizacion"]||r["Localización"]||r["localizacion"]||"",
+        cliente:r["Veterinaria"]||r["Cliente"]||r["cliente"]||"",
+        tipo:r["Equipo"]||r["Tipo"]||r["tipo"]||"",
+        modelo:r["Modelo de Equipo"]||r["Modelo"]||r["modelo"]||"",
+        serie:r["# de serie"]||r["Serie"]||r["serie"]||"",
+        fechaIngreso:r["Fecha de ingreso"]||r["FechaIngreso"]||"",
+        fechaInstalacion:r["Fecha de instalación"]||r["FechaInstalacion"]||"",
+        versionSw:r["Version de software"]||r["Version"]||"",
+        comentarios:r["Comentarios"]||r["comentarios"]||"",
+      })).filter(r=>r.cliente&&r.cliente!=="Veterinaria");
+
+      if(equiposData.length===0){
+        alert("No se encontraron datos válidos. Verifica que el Excel tenga las columnas correctas.");
+        setLoading(false);
+        return;
+      }
+
+      // Auto-create clients from Excel that don't exist yet
+      const clientesExistentes=await fetch("/api/clients").then(r=>r.json());
+      const nombresExistentes=new Set(clientesExistentes.map(c=>c.name.toLowerCase().trim()));
+      const veterinariasNuevas=[...new Set(equiposData.map(e=>e.cliente).filter(Boolean))]
+        .filter(v=>v.toLowerCase()!=="globalvet"&&v.toLowerCase()!=="bodega"&&!nombresExistentes.has(v.toLowerCase().trim()));
+      
+      let clientesCreados=0;
+      for(const vet of veterinariasNuevas){
+        try{
+          await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:"",department:"",type:"Veterinaria"})});
+          clientesCreados++;
+        }catch(e){}
+      }
+
+      const res=await fetch("/api/diprodi/bulk",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({equipos:equiposData,repuestos:[],accesorios:[]})
+      });
+      const result=await res.json();
+      await loadData();
+      alert(`✅ Importados ${result.imported.equipos} equipos del Excel\n🏥 ${clientesCreados} clientes nuevos creados automáticamente`);
+    }catch(err){
+      console.error(err);
+      alert("Error al procesar el Excel: "+err.message);
+    }
+    setLoading(false);
+    e.target.value="";
+  };
+
   useEffect(()=>{loadData();},[]);
 
   const importAll=async()=>{
     setLoading(true);
     try{
+      // Auto-create clients from embedded data
+      const clientesExist=await fetch("/api/clients").then(r=>r.json());
+      const nombresExist=new Set(clientesExist.map(c=>c.name.toLowerCase().trim()));
+      const vetsNuevas=[...new Set(DIPRODI_EQUIPOS.map(e=>e.cliente).filter(Boolean))]
+        .filter(v=>v.toLowerCase()!=="globalvet"&&v.toLowerCase()!=="bodega"&&!nombresExist.has(v.toLowerCase().trim()));
+      
+      let creados=0;
+      for(const vet of vetsNuevas){
+        try{
+          await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:vet,contact:"",phone:"",email:"",city:"",department:"",type:"Veterinaria"})});
+          creados++;
+        }catch(e){}
+      }
+
       const res=await fetch("/api/diprodi/bulk",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({equipos:DIPRODI_EQUIPOS,repuestos:DIPRODI_REPUESTOS,accesorios:DIPRODI_ACCESORIOS})
@@ -2318,7 +2397,7 @@ function DiprodInventario({mapsKey}){
       const data=await res.json();
       setImported(true);
       await loadData();
-      alert(`✅ Importado: ${data.imported.equipos} equipos, ${data.imported.repuestos} repuestos, ${data.imported.accesorios} accesorios`);
+      alert(`✅ Importado: ${data.imported.equipos} equipos, ${data.imported.repuestos} repuestos, ${data.imported.accesorios} accesorios\n🏥 ${creados} clientes nuevos creados`);
     }catch(e){alert("Error al importar: "+e.message);}
     setLoading(false);
   };
@@ -2350,11 +2429,18 @@ function DiprodInventario({mapsKey}){
           <div style={{fontWeight:800,fontSize:20,color:"var(--text)"}}>📦 Inventario DIPRODI</div>
           <div style={{fontSize:13,color:"var(--text2)",marginTop:2}}>{stats.totalEquipos||0} equipos · {stats.totalRepuestos||0} repuestos · {stats.totalAccesorios||0} accesorios</div>
         </div>
-        {equipos.length===0&&!loading&&(
-          <button onClick={importAll} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            ⬆️ Importar inventario completo
-          </button>
-        )}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {equipos.length===0&&!loading&&(
+            <button onClick={importAll} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              ⬆️ Cargar inventario DIPRODI
+            </button>
+          )}
+          <label style={{background:"#185FA5",color:"white",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            📊 Subir Excel
+            <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleExcelUpload}/>
+          </label>
+          {loading&&<span style={{fontSize:12,color:"var(--text2)"}}>Procesando...</span>}
+        </div>
       </div>
 
       {/* Stats cards */}
