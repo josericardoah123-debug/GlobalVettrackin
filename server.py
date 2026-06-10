@@ -468,6 +468,146 @@ def get_live():
     """Admin polls for all live technician positions"""
     return jsonify(list(live_positions.values()))
 
+
+# ─── DIPRODI INVENTORY ────────────────────────────────────────────────────────
+@app.route("/api/diprodi/equipos")
+def get_equipos():
+    tipo = request.args.get("tipo")
+    estado = request.args.get("estado")
+    cliente = request.args.get("cliente")
+    conn = get_db()
+    sql = "SELECT * FROM diprodi_equipos WHERE 1=1"
+    params = []
+    if tipo: sql += " AND tipo=?"; params.append(tipo)
+    if estado: sql += " AND estado=?"; params.append(estado)
+    if cliente: sql += " AND cliente ILIKE ?" if is_pg() else " AND cliente LIKE ?"; params.append(f"%{cliente}%")
+    sql += " ORDER BY num"
+    cur = ex(conn, sql, params)
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/diprodi/equipos", methods=["POST"])
+def add_equipo():
+    d = request.get_json()
+    eid = "eq_" + uuid.uuid4().hex[:10]
+    conn = get_db()
+    ex(conn, """INSERT INTO diprodi_equipos(id,num,localizacion,cliente,tipo,modelo,serie,fecha_ingreso,fecha_instalacion,version_sw,comentarios,estado,modalidad,contrato_inicio,contrato_meses,contrato_valor,categoria)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+       (eid,d.get("num",0),d.get("localizacion",""),d.get("cliente",""),d.get("tipo",""),
+        d.get("modelo",""),d.get("serie",""),d.get("fechaIngreso",""),d.get("fechaInstalacion",""),
+        d.get("versionSw",""),d.get("comentarios",""),d.get("estado","instalado"),
+        d.get("modalidad","leasing"),d.get("contratoInicio",""),d.get("contratoMeses"),
+        d.get("contratoValor"),d.get("categoria","equipo")))
+    conn.commit()
+    cur = ex(conn, "SELECT * FROM diprodi_equipos WHERE id=?", (eid,))
+    row = r2d(cur.fetchone())
+    conn.close()
+    return jsonify(row)
+
+@app.route("/api/diprodi/equipos/<eid>", methods=["PATCH"])
+def update_equipo(eid):
+    d = request.get_json()
+    conn = get_db()
+    fields, vals = [], []
+    for k,col in [("estado","estado"),("modalidad","modalidad"),("contratoInicio","contrato_inicio"),
+                  ("contratoMeses","contrato_meses"),("contratoValor","contrato_valor"),
+                  ("comentarios","comentarios"),("versionSw","version_sw"),
+                  ("fechaInstalacion","fecha_instalacion")]:
+        if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    if fields:
+        vals.append(eid)
+        ex(conn, f"UPDATE diprodi_equipos SET {','.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    cur = ex(conn, "SELECT * FROM diprodi_equipos WHERE id=?", (eid,))
+    row = r2d(cur.fetchone())
+    conn.close()
+    return jsonify(row)
+
+@app.route("/api/diprodi/bulk", methods=["POST"])
+def bulk_import():
+    """Import all DIPRODI inventory in one call"""
+    d = request.get_json()
+    conn = get_db()
+    equipos = d.get("equipos", [])
+    accesorios = d.get("accesorios", [])
+    repuestos = d.get("repuestos", [])
+    imported = {"equipos": 0, "accesorios": 0, "repuestos": 0}
+    
+    for e in equipos:
+        eid = "eq_" + uuid.uuid4().hex[:10]
+        # Determine estado
+        estado = "bodega" if e.get("cliente","").lower() in ["globalvet","bodega",""] else "instalado"
+        if "financiado" in e.get("comentarios","").lower(): estado = "financiado"
+        if "contado" in e.get("comentarios","").lower(): estado = "contado"
+        try:
+            ex(conn, """INSERT INTO diprodi_equipos(id,num,localizacion,cliente,tipo,modelo,serie,fecha_ingreso,fecha_instalacion,version_sw,comentarios,estado,categoria)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (eid,e.get("num",0),e.get("localizacion",""),e.get("cliente",""),e.get("tipo",""),
+                e.get("modelo",""),e.get("serie",""),e.get("fechaIngreso",""),e.get("fechaInstalacion",""),
+                e.get("versionSw",""),e.get("comentarios",""),estado,"equipo"))
+            imported["equipos"] += 1
+        except: pass
+
+    for a in accesorios:
+        aid = "acc_" + uuid.uuid4().hex[:10]
+        try:
+            ex(conn, "INSERT INTO diprodi_accesorios(id,tipo,modelo,serie,cantidad,cliente,localizacion,estado,categoria) VALUES(?,?,?,?,?,?,?,?,?)",
+               (aid,a.get("tipo",""),a.get("modelo",""),a.get("serie",""),a.get("cantidad",1),
+                a.get("cliente",""),a.get("localizacion","Bodega"),
+                "instalado" if a.get("cliente") else "disponible","accesorio"))
+            imported["accesorios"] += 1
+        except: pass
+
+    for r in repuestos:
+        rid = "rep_" + uuid.uuid4().hex[:10]
+        try:
+            ex(conn, "INSERT INTO diprodi_repuestos(id,num,localizacion,cliente,equipo,modelo,num_parte,nombre,cantidad,fecha_ingreso,categoria) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+               (rid,r.get("num",0),r.get("localizacion","Bodega"),r.get("cliente","GlobalVet"),
+                r.get("equipo",""),r.get("modelo",""),r.get("numParte",""),r.get("nombre",""),
+                r.get("cantidad",1),r.get("fechaIngreso",""),"repuesto"))
+            imported["repuestos"] += 1
+        except: pass
+
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "imported": imported})
+
+@app.route("/api/diprodi/repuestos")
+def get_repuestos():
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM diprodi_repuestos ORDER BY num")
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/diprodi/accesorios")
+def get_accesorios():
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM diprodi_accesorios ORDER BY tipo")
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/diprodi/stats")
+def get_inventory_stats():
+    """Summary stats for dashboard"""
+    conn = get_db()
+    stats = {}
+    # Equipment by status
+    cur = ex(conn, "SELECT estado, COUNT(*) as c FROM diprodi_equipos GROUP BY estado")
+    stats["byEstado"] = {r["estado"]: r["c"] for r in rlist(cur.fetchall())}
+    # Equipment by type
+    cur = ex(conn, "SELECT tipo, COUNT(*) as c FROM diprodi_equipos GROUP BY tipo ORDER BY c DESC")
+    stats["byTipo"] = rlist(cur.fetchall())
+    # Total counts
+    cur = ex(conn, "SELECT COUNT(*) as c FROM diprodi_equipos"); stats["totalEquipos"] = r2d(cur.fetchone())["c"]
+    cur = ex(conn, "SELECT COUNT(*) as c FROM diprodi_accesorios"); stats["totalAccesorios"] = r2d(cur.fetchone())["c"]
+    cur = ex(conn, "SELECT COUNT(*) as c FROM diprodi_repuestos"); stats["totalRepuestos"] = r2d(cur.fetchone())["c"]
+    cur = ex(conn, "SELECT COUNT(*) as c FROM diprodi_equipos WHERE estado='bodega'"); stats["enBodega"] = r2d(cur.fetchone())["c"]
+    conn.close()
+    return jsonify(stats)
+
 # ─── STATIC ───────────────────────────────────────────────────────────────────
 @app.route("/")
 def index(): return send_from_directory("static","index.html")
