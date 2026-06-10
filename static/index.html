@@ -2159,71 +2159,118 @@ const DIPRODI_ACCESORIOS = [{"tipo": "Mochila", "modelo": "Mochila", "serie": "0
 
 // ─── FINANCIADO FORM ─────────────────────────────────────────────────────────
 function FinanciadoForm({eq,onSave}){
-  const [valorTotal,setValorTotal]=useState(eq.contrato_valor||"");
-  const [cuota,setCuota]=useState(eq.cuota_mensual||"");
-  const [inicio,setInicio]=useState(eq.contrato_inicio||"");
-  const [meses,setMeses]=useState(eq.contrato_meses||"");
+  const [precio,setPrecio]=useState(eq.contrato_valor||"");
+  const [prima,setPrima]=useState(eq.prima||"");
+  const [plazo,setPlazo]=useState(eq.contrato_meses||6);
+  const [interes,setInteres]=useState(eq.interes||15);
+  const [inicio,setInicio]=useState(eq.contrato_inicio||new Date().toISOString().slice(0,10));
   const [saving,setSaving]=useState(false);
 
-  // Auto-calculate months from value and monthly payment
-  const calcMeses=()=>{
-    if(valorTotal&&cuota&&+cuota>0) setMeses(Math.ceil(+valorTotal/+cuota));
-  };
+  const fmt=n=>(+n||0).toLocaleString("es-HN",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmt0=n=>(+n||0).toLocaleString("es-HN",{minimumFractionDigits:0});
 
-  // Calculate progress
+  // Calculations
+  const primaMin=precio?(+precio*0.5):0;
+  const primaVal=prima?+prima:primaMin;
+  const montoFinanciar=Math.max(0,(+precio||0)-primaVal);
+  const totalInteres=montoFinanciar*(+interes/100);
+  const totalPagar=montoFinanciar+totalInteres;
+  const cuotaMensual=plazo>0?totalPagar/+plazo:0;
+
+  // Progress calculation
   const now=new Date();
   const inicioDate=inicio?new Date(inicio):null;
-  const mesesPagados=inicioDate?Math.floor((now-inicioDate)/(30*24*3600*1000)):0;
-  const mesesRestantes=meses?Math.max(0,+meses-mesesPagados):null;
-  const pagado=cuota?Math.min(mesesPagados*(+cuota),+valorTotal||0):0;
-  const saldo=valorTotal?Math.max(0,+valorTotal-pagado):0;
-  const pct=valorTotal&&valorTotal>0?Math.min(Math.round((pagado/+valorTotal)*100),100):0;
+  const mesesPagados=inicioDate?Math.max(0,Math.floor((now-inicioDate)/(30.44*24*3600*1000))):0;
+  const pagado=Math.min(mesesPagados*cuotaMensual,totalPagar);
+  const saldo=Math.max(0,totalPagar-pagado);
+  const pct=totalPagar>0?Math.min(Math.round((pagado/totalPagar)*100),100):0;
+  const mesesRestantes=Math.max(0,+plazo-mesesPagados);
 
   const handleSave=async()=>{
     setSaving(true);
-    await onSave({contratoValor:+valorTotal,contratoMeses:+meses,contratoInicio:inicio,cuotaMensual:+cuota});
+    await onSave({
+      contratoValor:+precio,
+      prima:primaVal,
+      contratoMeses:+plazo,
+      contratoInicio:inicio,
+      interes:+interes,
+      cuotaMensual:+cuotaMensual.toFixed(2)
+    });
     setSaving(false);
   };
 
-  const fmt=n=>(+n||0).toLocaleString("es-HN",{minimumFractionDigits:0});
-
   return(
     <div style={{background:"#FFF9F0",borderRadius:10,padding:12,marginBottom:8,border:"1px solid #F5C97C"}}>
-      <div style={{fontWeight:700,fontSize:12,color:"#854F0B",marginBottom:8}}>💰 Contrato de financiamiento</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+      <div style={{fontWeight:700,fontSize:12,color:"#854F0B",marginBottom:10}}>💰 Contrato de financiamiento</div>
+
+      {/* Input fields */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
         <div>
-          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Valor total (L.)</div>
-          <input type="number" value={valorTotal} onChange={e=>setValorTotal(e.target.value)} onBlur={calcMeses} placeholder="Ej: 150000" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Precio del equipo (L.)</div>
+          <input type="number" value={precio} onChange={e=>setPrecio(e.target.value)} placeholder="Ej: 150000"
+            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
         </div>
         <div>
-          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Cuota mensual (L.)</div>
-          <input type="number" value={cuota} onChange={e=>setCuota(e.target.value)} onBlur={calcMeses} placeholder="Ej: 5000" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Prima (mín. 50%) L.</div>
+          <input type="number" value={prima} onChange={e=>setPrima(e.target.value)} placeholder={`Mín: L.${fmt0(primaMin)}`}
+            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${prima&&+prima<primaMin?"#E74C3C":"#F5C97C"}`,background:"white",fontSize:12}}/>
+          {prima&&+prima<primaMin&&<div style={{fontSize:9,color:"#E74C3C",marginTop:2}}>⚠️ Prima mínima: L.{fmt0(primaMin)}</div>}
         </div>
         <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Plazo</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:3}}>
+            {[3,6,9,12].map(p=>(
+              <button key={p} onClick={()=>setPlazo(p)} style={{padding:"5px 2px",borderRadius:5,border:"1px solid",borderColor:plazo===p?"#EF9F27":"#F5C97C",background:plazo===p?"#EF9F27":"white",color:plazo===p?"white":"#854F0B",fontSize:11,fontWeight:plazo===p?700:400,cursor:"pointer"}}>{p}m</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Interés sobre financiado (%)</div>
+          <input type="number" value={interes} onChange={e=>setInteres(e.target.value)} max="15" min="0" step="0.5"
+            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+        </div>
+        <div style={{gridColumn:"1/-1"}}>
           <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Fecha inicio contrato</div>
-          <input type="date" value={inicio} onChange={e=>setInicio(e.target.value)} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
-        </div>
-        <div>
-          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Duración (meses)</div>
-          <input type="number" value={meses} onChange={e=>setMeses(e.target.value)} placeholder="Auto" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+          <input type="date" value={inicio} onChange={e=>setInicio(e.target.value)}
+            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
         </div>
       </div>
 
-      {/* Progress */}
-      {inicio&&valorTotal&&(
-        <div style={{marginBottom:8}}>
-          <div style={{background:"#F5E6C8",borderRadius:4,height:8,overflow:"hidden",marginBottom:4}}>
-            <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,#EF9F27,#E67E22)",borderRadius:4}}/>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,fontSize:10,color:"#854F0B"}}>
-            <div>✅ Pagado: L.{fmt(pagado)}</div>
-            <div>⏳ Saldo: L.{fmt(saldo)}</div>
-            <div>📅 Meses rest.: {mesesRestantes??'—'}</div>
+      {/* Summary */}
+      {precio&&(
+        <div style={{background:"white",borderRadius:8,padding:"10px 12px",marginBottom:8,border:"1px solid #F5C97C"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#854F0B",marginBottom:6}}>📊 Resumen del contrato</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11,color:"#5C3209"}}>
+            <div>💵 Precio: <strong>L.{fmt0(precio)}</strong></div>
+            <div>🤝 Prima: <strong>L.{fmt0(primaVal)}</strong></div>
+            <div>💳 A financiar: <strong>L.{fmt0(montoFinanciar)}</strong></div>
+            <div>📈 Interés ({interes}%): <strong>L.{fmt0(totalInteres)}</strong></div>
+            <div>🧾 Total a pagar: <strong>L.{fmt0(totalPagar)}</strong></div>
+            <div style={{color:"#EF9F27",fontWeight:700}}>📅 Cuota/mes: <strong>L.{fmt(cuotaMensual)}</strong></div>
           </div>
         </div>
       )}
 
-      <button onClick={handleSave} disabled={saving} style={{width:"100%",background:"#EF9F27",color:"white",border:"none",borderRadius:7,padding:"7px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+      {/* Progress if contract started */}
+      {inicio&&precio&&mesesPagados>0&&(
+        <div style={{marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#854F0B",marginBottom:3}}>
+            <span>Progreso del contrato</span>
+            <span>{pct}% — {mesesPagados} de {plazo} meses</span>
+          </div>
+          <div style={{background:"#F5E6C8",borderRadius:4,height:10,overflow:"hidden",marginBottom:4}}>
+            <div style={{width:`${pct}%`,height:"100%",background:pct>=100?"#1D9E75":"linear-gradient(90deg,#EF9F27,#E67E22)",borderRadius:4,transition:"width 0.5s"}}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,fontSize:10,color:"#854F0B"}}>
+            <div>✅ Pagado: L.{fmt0(pagado)}</div>
+            <div>⏳ Saldo: L.{fmt0(saldo)}</div>
+            <div>📅 Quedan: {mesesRestantes} meses</div>
+          </div>
+        </div>
+      )}
+
+      <button onClick={handleSave} disabled={saving||!precio||(prima&&+prima<primaMin)}
+        style={{width:"100%",background:saving||!precio?"#ccc":"#EF9F27",color:"white",border:"none",borderRadius:7,padding:"8px",fontSize:12,fontWeight:700,cursor:saving||!precio?"not-allowed":"pointer"}}>
         {saving?"Guardando...":"💾 Guardar contrato"}
       </button>
     </div>

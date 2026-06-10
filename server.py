@@ -614,7 +614,7 @@ def update_equipo(eid):
     fields, vals = [], []
     for k,col in [("estado","estado"),("modalidad","modalidad"),("contratoInicio","contrato_inicio"),
                   ("contratoMeses","contrato_meses"),("contratoValor","contrato_valor"),
-                  ("cuotaMensual","cuota_mensual"),
+                  ("cuotaMensual","cuota_mensual"),("prima","prima"),("interes","interes"),
                   ("comentarios","comentarios"),("versionSw","version_sw"),
                   ("fechaInstalacion","fecha_instalacion")]:
         if k in d: fields.append(f"{col}=?"); vals.append(d[k])
