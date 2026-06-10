@@ -724,6 +724,13 @@ def get_inventory_stats():
     conn.close()
     return jsonify(stats)
 
+@app.route("/api/clients/deleteall", methods=["POST"])
+def delete_all_clients():
+    conn=get_db()
+    ex(conn,"DELETE FROM clients")
+    conn.commit(); conn.close()
+    return jsonify({"ok":True})
+
 # ─── STATIC ───────────────────────────────────────────────────────────────────
 @app.route("/")
 def index(): return send_from_directory("static","index.html")
