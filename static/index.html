@@ -1537,9 +1537,13 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       watchRef.current=navigator.geolocation.watchPosition(
         pos=>{
           const newPt=[pos.coords.latitude,pos.coords.longitude];
+          // Only accept if accuracy is reasonable
+          if(pos.coords.accuracy>100) return;
           setGpsPts(prev=>{
             if(prev.length===0) return [newPt];
             const dist=calcDist(prev[prev.length-1],newPt);
+            // Ignore spikes > 2km between consecutive points (GPS error)
+            if(dist>2) return prev;
             if(dist>0.05){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
             return prev;
           });
@@ -2152,6 +2156,80 @@ const DIPRODI_EQUIPOS = [{"num": 1, "localizacion": "Santa Barbara", "cliente": 
 const DIPRODI_REPUESTOS = [{"num": 1, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Anestesia", "modelo": "Veta 5", "numParte": "115-00595A-00", "nombre": "Kit de mantenimiento avanzado", "cantidad": 2, "fechaIngreso": "2025-06-09"}, {"num": 2, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Quimica", "modelo": "vetXpert Cube", "numParte": "115-01211A-00", "nombre": "Conjunto de lámpara de xenón", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 3, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Quimica", "modelo": "vetXpert Cube", "numParte": "115-01216A-00", "nombre": "Kit Módulo Inmune", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 4, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Quimica", "modelo": "vetXpert Cube", "numParte": "115-01151A-00", "nombre": "Conjunto de escáner de código de barras 2D", "cantidad": 2, "fechaIngreso": "2025-06-09"}, {"num": 5, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-025643-00", "nombre": "Conjunto de bomba de residuos", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 6, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-025640-00", "nombre": "Módulo HGB", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 7, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-025640-01", "nombre": "Módulo HGB (Nuevo LED)", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 8, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-061642-00", "nombre": "Conjunto de baño WBC", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 9, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-061643-00", "nombre": "Conjunto de baño RBC", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 10, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "801-3201-00002-00", "nombre": "Válvula de 2 vías (Mindray)", "cantidad": 2, "fechaIngreso": "2025-06-09"}, {"num": 11, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "801-3201-00003-00", "nombre": "Válvula de 3 vías (Mindray)", "cantidad": 2, "fechaIngreso": "2025-06-09"}, {"num": 12, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-027479-00", "nombre": "Jeringa de 250ul", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 13, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "801-3003-00027-00", "nombre": "Jeringa de 10 ml", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 14, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "801-3001-00055-00", "nombre": "Paquete de sensores", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 15, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-015967-00", "nombre": "Válvula de 3 vías SMC", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 16, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "115-025715-00", "nombre": "Conjunto de bomba de aire", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 17, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "3001-10-07069", "nombre": "Tubo Tygon 1/16 x 1/8", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 18, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "082-000108-00", "nombre": "Tubo M-87-D3 2mmX3.5mm", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 19, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Hematologia", "modelo": "", "numParte": "024-000608-00", "nombre": "Ventilador 12V 80x80x25mm", "cantidad": 1, "fechaIngreso": "2025-06-09"}, {"num": 20, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Anestesia", "modelo": "Veta 3x", "numParte": "115-00882A-00", "nombre": "Disposable Accessory Kit Small Veta 3x", "cantidad": 4, "fechaIngreso": "2026-01-14"}, {"num": 21, "localizacion": "Bodega", "cliente": "GlobalVet", "equipo": "Anestesia", "modelo": "", "numParte": "", "nombre": "Filter Canister Accessory Kit", "cantidad": 5, "fechaIngreso": "2026-01-14"}];
 const DIPRODI_ACCESORIOS = [{"tipo": "Mochila", "modelo": "Mochila", "serie": "048-00160A-00", "cantidad": 2, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Traje de plomo", "modelo": "Traje de plomo", "serie": "DR25120300041", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Traje de plomo", "modelo": "Traje de plomo", "serie": "DR25120300042", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Traje de plomo", "modelo": "Traje de plomo", "serie": "DR25120300043", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Trolley Vetus E3", "modelo": "Trolley Vetus E3", "serie": "GE2T61000178", "cantidad": 1, "cliente": "Arca De Noe", "localizacion": "San Pedro Sula"}, {"tipo": "Mobile Trolley", "modelo": "Mobile Trolley", "serie": "QMB61006309", "cantidad": 1, "cliente": "DogtorVet", "localizacion": "Tegucigalpa"}, {"tipo": "Trolley Vetus E3", "modelo": "Trolley Vetus E3", "serie": "GE2T61000187", "cantidad": 1, "cliente": "Angeles Pets", "localizacion": "Tegucigalpa"}, {"tipo": "Trolley", "modelo": "Trolley", "serie": "GE2T61000161", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Mobile Trolley", "modelo": "Mobile Trolley", "serie": "QMB61006308", "cantidad": 1, "cliente": "MotoVET", "localizacion": "Danli"}, {"tipo": "Transductor Microconvexo", "modelo": "Transductor Microconvexo", "serie": "LP7B5B015314A", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}, {"tipo": "Transductor face", "modelo": "Transductor face", "serie": "LP6Q5A014527A", "cantidad": 1, "cliente": "", "localizacion": "Bodega"}];
 
+
+// ─── FINANCIADO FORM ─────────────────────────────────────────────────────────
+function FinanciadoForm({eq,onSave}){
+  const [valorTotal,setValorTotal]=useState(eq.contrato_valor||"");
+  const [cuota,setCuota]=useState(eq.cuota_mensual||"");
+  const [inicio,setInicio]=useState(eq.contrato_inicio||"");
+  const [meses,setMeses]=useState(eq.contrato_meses||"");
+  const [saving,setSaving]=useState(false);
+
+  // Auto-calculate months from value and monthly payment
+  const calcMeses=()=>{
+    if(valorTotal&&cuota&&+cuota>0) setMeses(Math.ceil(+valorTotal/+cuota));
+  };
+
+  // Calculate progress
+  const now=new Date();
+  const inicioDate=inicio?new Date(inicio):null;
+  const mesesPagados=inicioDate?Math.floor((now-inicioDate)/(30*24*3600*1000)):0;
+  const mesesRestantes=meses?Math.max(0,+meses-mesesPagados):null;
+  const pagado=cuota?Math.min(mesesPagados*(+cuota),+valorTotal||0):0;
+  const saldo=valorTotal?Math.max(0,+valorTotal-pagado):0;
+  const pct=valorTotal&&valorTotal>0?Math.min(Math.round((pagado/+valorTotal)*100),100):0;
+
+  const handleSave=async()=>{
+    setSaving(true);
+    await onSave({contratoValor:+valorTotal,contratoMeses:+meses,contratoInicio:inicio,cuotaMensual:+cuota});
+    setSaving(false);
+  };
+
+  const fmt=n=>(+n||0).toLocaleString("es-HN",{minimumFractionDigits:0});
+
+  return(
+    <div style={{background:"#FFF9F0",borderRadius:10,padding:12,marginBottom:8,border:"1px solid #F5C97C"}}>
+      <div style={{fontWeight:700,fontSize:12,color:"#854F0B",marginBottom:8}}>💰 Contrato de financiamiento</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Valor total (L.)</div>
+          <input type="number" value={valorTotal} onChange={e=>setValorTotal(e.target.value)} onBlur={calcMeses} placeholder="Ej: 150000" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Cuota mensual (L.)</div>
+          <input type="number" value={cuota} onChange={e=>setCuota(e.target.value)} onBlur={calcMeses} placeholder="Ej: 5000" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Fecha inicio contrato</div>
+          <input type="date" value={inicio} onChange={e=>setInicio(e.target.value)} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:"#854F0B",marginBottom:3}}>Duración (meses)</div>
+          <input type="number" value={meses} onChange={e=>setMeses(e.target.value)} placeholder="Auto" style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #F5C97C",background:"white",fontSize:12}}/>
+        </div>
+      </div>
+
+      {/* Progress */}
+      {inicio&&valorTotal&&(
+        <div style={{marginBottom:8}}>
+          <div style={{background:"#F5E6C8",borderRadius:4,height:8,overflow:"hidden",marginBottom:4}}>
+            <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,#EF9F27,#E67E22)",borderRadius:4}}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,fontSize:10,color:"#854F0B"}}>
+            <div>✅ Pagado: L.{fmt(pagado)}</div>
+            <div>⏳ Saldo: L.{fmt(saldo)}</div>
+            <div>📅 Meses rest.: {mesesRestantes??'—'}</div>
+          </div>
+        </div>
+      )}
+
+      <button onClick={handleSave} disabled={saving} style={{width:"100%",background:"#EF9F27",color:"white",border:"none",borderRadius:7,padding:"7px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+        {saving?"Guardando...":"💾 Guardar contrato"}
+      </button>
+    </div>
+  );
+}
+
 function DiprodInventario({mapsKey}){
   const [tab,setTab]=useState("equipos");
   const [equipos,setEquipos]=useState([]);
@@ -2248,8 +2326,14 @@ function DiprodInventario({mapsKey}){
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid var(--border)",paddingBottom:8}}>
-        {[["equipos","🔬 Equipos",equipos.length],["repuestos","🔧 Repuestos",repuestos.length],["accesorios","🎒 Accesorios",accesorios.length]].map(([k,l,c])=>(
+      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid var(--border)",paddingBottom:8,flexWrap:"wrap"}}>
+        {[
+          ["bodega","📦 Bodega",equipos.filter(e=>e.estado==="bodega").length],
+          ["financiados","💰 Financiados",equipos.filter(e=>e.estado==="financiado").length],
+          ["todos","🔬 Todos",equipos.length],
+          ["repuestos","🔧 Repuestos",repuestos.length],
+          ["accesorios","🎒 Accesorios",accesorios.length]
+        ].map(([k,l,c])=>(
           <button key={k} onClick={()=>setTab(k)} style={{background:tab===k?"#185FA5":"transparent",color:tab===k?"white":"var(--text2)",border:"1px solid",borderColor:tab===k?"#185FA5":"var(--border)",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:tab===k?700:400,cursor:"pointer"}}>
             {l} <span style={{fontSize:11,opacity:0.8}}>({c})</span>
           </button>
@@ -2259,7 +2343,7 @@ function DiprodInventario({mapsKey}){
       {loading&&<div style={{textAlign:"center",padding:40,color:"var(--text2)"}}>Cargando...</div>}
 
       {/* EQUIPOS */}
-      {!loading&&tab==="equipos"&&(
+      {!loading&&(tab==="equipos"||tab==="todos"||tab==="bodega"||tab==="financiados")&&(
         <div>
           {/* Filters */}
           <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -2314,6 +2398,13 @@ function DiprodInventario({mapsKey}){
                       ))}
                     </div>
                     {eq.comentarios&&<div style={{background:"#FFF9F0",borderRadius:7,padding:"7px 10px",fontSize:11,color:"#854F0B"}}>💬 {eq.comentarios}</div>}
+                    {/* Financing info for financiado equipment */}
+                    {eq.estado==="financiado"&&(
+                      <FinanciadoForm eq={eq} onSave={async(data)=>{
+                        await fetch(`/api/diprodi/equipos/${eq.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+                        loadData();
+                      }}/>
+                    )}
                     <div style={{display:"flex",gap:6,marginTop:8}}>
                       <select defaultValue={eq.estado} onChange={async e=>{
                         await fetch(`/api/diprodi/equipos/${eq.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({estado:e.target.value})});
