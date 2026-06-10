@@ -469,6 +469,108 @@ def get_live():
     return jsonify(list(live_positions.values()))
 
 
+
+# ─── SALES GOALS & RECORDS ────────────────────────────────────────────────────
+@app.route("/api/sales/goals")
+def get_goals():
+    mes = request.args.get("mes", datetime.now().strftime("%Y-%m"))
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM sales_goals WHERE mes=?", (mes,))
+    goals = {r["user_id"]: r for r in rlist(cur.fetchall())}
+    cur2 = ex(conn, "SELECT user_id, SUM(monto) as total FROM sales_records WHERE mes=? GROUP BY user_id", (mes,))
+    totals = {r["user_id"]: float(r["total"] or 0) for r in rlist(cur2.fetchall())}
+    conn.close()
+    return jsonify({"goals": goals, "totals": totals, "mes": mes})
+
+@app.route("/api/sales/goals", methods=["POST"])
+def save_goal():
+    d = request.get_json()
+    mes = d.get("mes", datetime.now().strftime("%Y-%m"))
+    uid = d.get("userId")
+    conn = get_db()
+    # Check if goal exists
+    cur = ex(conn, "SELECT id FROM sales_goals WHERE user_id=? AND mes=?", (uid, mes))
+    existing = r2d(cur.fetchone())
+    if existing:
+        ex(conn, "UPDATE sales_goals SET meta=? WHERE id=?", (d.get("meta", 0), existing["id"]))
+    else:
+        gid = "goal_" + uuid.uuid4().hex[:10]
+        ex(conn, "INSERT INTO sales_goals(id,user_id,mes,meta) VALUES(?,?,?,?)",
+           (gid, uid, mes, d.get("meta", 0)))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/api/sales/records", methods=["POST"])
+def add_sale():
+    d = request.get_json()
+    sid = "sale_" + uuid.uuid4().hex[:10]
+    mes = datetime.now().strftime("%Y-%m")
+    conn = get_db()
+    ex(conn, "INSERT INTO sales_records(id,user_id,mes,monto,descripcion,cliente,fecha) VALUES(?,?,?,?,?,?,?)",
+       (sid, d.get("userId",""), mes, float(d.get("monto",0)), d.get("descripcion",""), d.get("cliente",""), datetime.now().strftime("%Y-%m-%d")))
+    conn.commit()
+    cur = ex(conn, "SELECT SUM(monto) as total FROM sales_records WHERE user_id=? AND mes=?", (d.get("userId",""), mes))
+    total = float(r2d(cur.fetchone()).get("total") or 0)
+    conn.close()
+    return jsonify({"ok": True, "newTotal": total})
+
+@app.route("/api/sales/records")
+def get_sales():
+    uid = request.args.get("userId")
+    mes = request.args.get("mes", datetime.now().strftime("%Y-%m"))
+    conn = get_db()
+    if uid:
+        cur = ex(conn, "SELECT * FROM sales_records WHERE user_id=? AND mes=? ORDER BY created_at DESC", (uid, mes))
+    else:
+        cur = ex(conn, "SELECT * FROM sales_records WHERE mes=? ORDER BY created_at DESC", (mes,))
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+# ─── ODOMETER ─────────────────────────────────────────────────────────────────
+@app.route("/api/odometer")
+def get_odometer():
+    uid = request.args.get("userId")
+    mes = request.args.get("mes", datetime.now().strftime("%Y-%m"))
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM odometer_records WHERE user_id=? AND mes=? ORDER BY created_at DESC LIMIT 1", (uid, mes))
+    row = r2d(cur.fetchone())
+    # Get km from trips this month
+    cur2 = ex(conn, "SELECT SUM(km) as total FROM trips WHERE technician_id=? AND date LIKE ?", (uid, f"{mes}%"))
+    km_row = r2d(cur2.fetchone())
+    km_laborales = float(km_row.get("total") or 0)
+    conn.close()
+    return jsonify({"record": row, "kmLaborales": km_laborales})
+
+@app.route("/api/odometer", methods=["POST"])
+def save_odometer():
+    d = request.get_json()
+    mes = d.get("mes", datetime.now().strftime("%Y-%m"))
+    uid = d.get("userId")
+    conn = get_db()
+    # Calculate reimbursement
+    km_inicio = float(d.get("kmInicio", 0))
+    km_fin = float(d.get("kmFin", 0))
+    km_total = km_fin - km_inicio if km_fin > km_inicio else 0
+    km_laborales = float(d.get("kmLaborales", 0))
+    factura = float(d.get("facturaMonto", 0))
+    pct = (km_laborales / km_total * 100) if km_total > 0 else 0
+    reembolso = factura * (pct / 100)
+    
+    cur = ex(conn, "SELECT id FROM odometer_records WHERE user_id=? AND mes=?", (uid, mes))
+    existing = r2d(cur.fetchone())
+    if existing:
+        ex(conn, "UPDATE odometer_records SET km_inicio=?,km_fin=?,factura_monto=?,km_laborales=?,reembolso=? WHERE id=?",
+           (km_inicio, km_fin, factura, km_laborales, round(reembolso, 2), existing["id"]))
+    else:
+        oid = "odo_" + uuid.uuid4().hex[:10]
+        ex(conn, "INSERT INTO odometer_records(id,user_id,mes,km_inicio,km_fin,factura_monto,km_laborales,reembolso) VALUES(?,?,?,?,?,?,?,?)",
+           (oid, uid, mes, km_inicio, km_fin, factura, km_laborales, round(reembolso, 2)))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "reembolso": round(reembolso, 2), "porcentaje": round(pct, 1)})
+
 # ─── DIPRODI INVENTORY ────────────────────────────────────────────────────────
 @app.route("/api/diprodi/equipos")
 def get_equipos():

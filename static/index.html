@@ -1206,6 +1206,233 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
   );
 }
 
+
+// ─── ODOMETRO MENSUAL ─────────────────────────────────────────────────────────
+function OdometroMensual({user}){
+  const now=new Date();
+  const mes=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const mesNombre=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][now.getMonth()];
+  const [data,setData]=useState(null);
+  const [kmLaborales,setKmLaborales]=useState(0);
+  const [kmInicio,setKmInicio]=useState("");
+  const [kmFin,setKmFin]=useState("");
+  const [factura,setFactura]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+
+  useEffect(()=>{
+    fetch(`/api/odometer?userId=${user.id}&mes=${mes}`).then(r=>r.json()).then(d=>{
+      if(d.record){
+        setKmInicio(d.record.km_inicio||"");
+        setKmFin(d.record.km_fin||"");
+        setFactura(d.record.factura_monto||"");
+        setData(d.record);
+      }
+      setKmLaborales(d.kmLaborales||0);
+    }).catch(()=>{});
+  },[]);
+
+  const kmTotal=+(kmFin||0)-(+(kmInicio||0));
+  const pct=kmTotal>0?Math.round((kmLaborales/kmTotal)*100):0;
+  const reembolso=factura?+(+(factura||0)*(pct/100)).toFixed(2):0;
+
+  const handleSave=async()=>{
+    setSaving(true);
+    try{
+      const res=await fetch("/api/odometer",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:user.id,mes,kmInicio:+kmInicio,kmFin:+kmFin,facturaMonto:+factura,kmLaborales})});
+      const d=await res.json();
+      setSaved(true);
+      setTimeout(()=>setSaved(false),3000);
+    }catch(e){}
+    setSaving(false);
+  };
+
+  return(
+    <div style={{background:"var(--surface)",borderRadius:12,padding:16,marginBottom:16,border:"1px solid var(--border)"}}>
+      <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span>🚗 Odómetro — {mesNombre}</span>
+        {saved&&<span style={{fontSize:11,color:"#1D9E75",fontWeight:600}}>✓ Guardado</span>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+        <div>
+          <div style={{fontSize:11,color:"var(--text2)",marginBottom:4}}>Km inicio del mes</div>
+          <input type="number" value={kmInicio} onChange={e=>setKmInicio(e.target.value)} placeholder="Ej: 45000" style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:13}}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"var(--text2)",marginBottom:4}}>Km fin del mes</div>
+          <input type="number" value={kmFin} onChange={e=>setKmFin(e.target.value)} placeholder="Ej: 45800" style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:13}}/>
+        </div>
+      </div>
+
+      {/* Progress */}
+      {kmTotal>0&&(
+        <div style={{background:"var(--card)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:10,color:"var(--text2)"}}>Total km</div>
+              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>{kmTotal}</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:10,color:"var(--text2)"}}>Km laborales</div>
+              <div style={{fontSize:16,fontWeight:800,color:"#185FA5"}}>{kmLaborales.toFixed(1)}</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:10,color:"var(--text2)"}}>% laboral</div>
+              <div style={{fontSize:16,fontWeight:800,color:"#0F6E56"}}>{pct}%</div>
+            </div>
+          </div>
+          <div style={{background:"var(--border)",borderRadius:4,height:8,overflow:"hidden"}}>
+            <div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:"linear-gradient(90deg,#185FA5,#0F6E56)",borderRadius:4,transition:"width 0.5s"}}/>
+          </div>
+        </div>
+      )}
+
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,color:"var(--text2)",marginBottom:4}}>Monto factura gasolina (L.)</div>
+        <input type="number" value={factura} onChange={e=>setFactura(e.target.value)} placeholder="Ej: 2000" style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:13}}/>
+      </div>
+
+      {factura&&kmTotal>0&&(
+        <div style={{background:"#E1F5EE",borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:11,color:"#0F6E56"}}>Reembolso estimado</div>
+            <div style={{fontSize:11,color:"#085041",marginTop:1}}>{pct}% de L.{factura}</div>
+          </div>
+          <div style={{fontSize:20,fontWeight:800,color:"#0F6E56",fontFamily:"monospace"}}>L.{reembolso.toLocaleString()}</div>
+        </div>
+      )}
+
+      <button onClick={handleSave} disabled={saving} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",opacity:saving?0.7:1}}>
+        {saving?"Guardando...":"💾 Guardar odómetro"}
+      </button>
+    </div>
+  );
+}
+
+
+// ─── SALES GOAL BAR ──────────────────────────────────────────────────────────
+function SalesGoalBar({user,clients=[]}){
+  const now=new Date();
+  const mes=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const mesNombre=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][now.getMonth()];
+  const [meta,setMeta]=useState(0);
+  const [total,setTotal]=useState(0);
+  const [sales,setSales]=useState([]);
+  const [showAdd,setShowAdd]=useState(false);
+  const [monto,setMonto]=useState("");
+  const [desc,setDesc]=useState("");
+  const [cliente,setCliente]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const loadGoal=async()=>{
+    try{
+      const d=await fetch(`/api/sales/goals?mes=${mes}`).then(r=>r.json());
+      const g=d.goals[user.id];
+      setMeta(g?parseFloat(g.meta):0);
+      setTotal(d.totals[user.id]||0);
+      const recs=await fetch(`/api/sales/records?userId=${user.id}&mes=${mes}`).then(r=>r.json());
+      setSales(recs);
+    }catch(e){}
+  };
+
+  useEffect(()=>{loadGoal();},[]);
+
+  const pct=meta>0?Math.min(Math.round((total/meta)*100),100):0;
+  const fmt=n=>n.toLocaleString("es-HN",{minimumFractionDigits:0,maximumFractionDigits:0});
+
+  const addSale=async()=>{
+    if(!monto||+monto<=0) return;
+    setSaving(true);
+    try{
+      const res=await fetch("/api/sales/records",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:user.id,monto:+monto,descripcion:desc,cliente})});
+      const d=await res.json();
+      setTotal(d.newTotal);
+      setMonto("");setDesc("");setCliente("");setShowAdd(false);
+      await loadGoal();
+    }catch(e){}
+    setSaving(false);
+  };
+
+  return(
+    <div style={{background:"var(--surface)",borderRadius:12,padding:16,marginBottom:16,border:"1px solid var(--border)"}}>
+      <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12}}>🎯 Meta de ventas — {mesNombre}</div>
+
+      {meta===0?(
+        <div style={{textAlign:"center",padding:"10px 0",color:"var(--text2)",fontSize:13}}>El admin aún no ha asignado tu meta de este mes</div>
+      ):(
+        <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:6}}>
+            <div>
+              <div style={{fontSize:11,color:"var(--text2)"}}>Vendido este mes</div>
+              <div style={{fontSize:22,fontWeight:800,color:pct>=100?"#1D9E75":"var(--text)",fontFamily:"monospace"}}>L.{fmt(total)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,color:"var(--text2)"}}>Meta</div>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--text2)",fontFamily:"monospace"}}>L.{fmt(meta)}</div>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{background:"var(--border)",borderRadius:6,height:14,overflow:"hidden",marginBottom:6,position:"relative"}}>
+            <div style={{width:`${pct}%`,height:"100%",background:pct>=100?"#1D9E75":"linear-gradient(90deg,#185FA5,#3C3489)",borderRadius:6,transition:"width 0.6s"}}/>
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:pct>30?"white":"var(--text2)"}}>{pct}%</div>
+          </div>
+
+          {pct>=100?(
+            <div style={{background:"#E1F5EE",borderRadius:8,padding:"7px 12px",fontSize:12,color:"#0F6E56",fontWeight:600,textAlign:"center",marginBottom:8}}>🎉 ¡Meta alcanzada! Faltan L.{fmt(total-meta)} para el siguiente nivel</div>
+          ):(
+            <div style={{fontSize:12,color:"var(--text2)",marginBottom:8}}>Falta L.{fmt(meta-total)} para alcanzar la meta</div>
+          )}
+        </>
+      )}
+
+      {/* Recent sales */}
+      {sales.length>0&&(
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:11,color:"var(--text2)",marginBottom:4}}>Últimas ventas</div>
+          {sales.slice(0,3).map(s=>(
+            <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
+              <div>
+                <div style={{fontSize:12,color:"var(--text)"}}>{s.descripcion||s.cliente||"Venta"}</div>
+                <div style={{fontSize:10,color:"var(--text2)"}}>{s.fecha}</div>
+              </div>
+              <div style={{fontSize:13,fontWeight:700,color:"#0F6E56",fontFamily:"monospace"}}>L.{fmt(s.monto)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add sale button */}
+      {!showAdd?(
+        <button onClick={()=>setShowAdd(true)} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:9,padding:"9px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          💰 Registrar venta cerrada
+        </button>
+      ):(
+        <div style={{background:"var(--card)",borderRadius:10,padding:12,border:"1px solid var(--border)"}}>
+          <div style={{fontSize:13,fontWeight:600,color:"var(--text)",marginBottom:8}}>Nueva venta</div>
+          <div style={{marginBottom:6}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Monto (L.)</div>
+            <input type="number" value={monto} onChange={e=>setMonto(e.target.value)} placeholder="Ej: 50000" style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+          </div>
+          <div style={{marginBottom:6}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Cliente</div>
+            <input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Nombre del cliente" style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Descripción (opcional)</div>
+            <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Equipo, servicio..." style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setShowAdd(false)} style={{flex:1,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:8,padding:"8px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={addSale} disabled={saving} style={{flex:2,background:"#0F6E56",color:"white",border:"none",borderRadius:8,padding:"8px",fontSize:13,fontWeight:700,cursor:"pointer"}}>💾 Guardar venta</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[],fuelGasPrice=95,fuelDieselPrice=85}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
@@ -2152,6 +2379,89 @@ function DiprodInventario({mapsKey}){
   );
 }
 
+
+// ─── SALES ADMIN PAGE ────────────────────────────────────────────────────────
+function SalesAdmin({techs}){
+  const now=new Date();
+  const mes=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const mesNombre=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][now.getMonth()];
+  const [goals,setGoals]=useState({});
+  const [totals,setTotals]=useState({});
+  const [editGoal,setEditGoal]=useState({});
+  const [saving,setSaving]=useState(null);
+
+  const vendedores=techs.filter(t=>t.role==="ventas"||t.role==="admin");
+
+  const load=async()=>{
+    try{
+      const d=await fetch(`/api/sales/goals?mes=${mes}`).then(r=>r.json());
+      setGoals(d.goals||{});setTotals(d.totals||{});
+      const eg={};
+      vendedores.forEach(v=>{eg[v.id]=d.goals[v.id]?d.goals[v.id].meta:0;});
+      setEditGoal(eg);
+    }catch(e){}
+  };
+
+  useEffect(()=>{load();},[techs.length]);
+
+  const saveMeta=async(uid)=>{
+    setSaving(uid);
+    try{
+      await fetch("/api/sales/goals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:uid,mes,meta:+editGoal[uid]||0})});
+      await load();
+    }catch(e){}
+    setSaving(null);
+  };
+
+  const fmt=n=>(+n||0).toLocaleString("es-HN",{minimumFractionDigits:0});
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontWeight:800,fontSize:20,color:"var(--text)",marginBottom:4}}>🎯 Metas de ventas</div>
+      <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>{mesNombre} {now.getFullYear()}</div>
+
+      {vendedores.length===0&&<div style={{color:"var(--text2)",fontSize:14,textAlign:"center",padding:"30px 0"}}>No hay vendedores registrados</div>}
+
+      {vendedores.map(v=>{
+        const meta=goals[v.id]?parseFloat(goals[v.id].meta):0;
+        const total=parseFloat(totals[v.id]||0);
+        const pct=meta>0?Math.min(Math.round((total/meta)*100),100):0;
+        return(
+          <div key={v.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <Avatar initials={v.name.split(" ").map(w=>w[0]).join("").slice(0,2)} color={v.color||"blue"} size={36}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{v.name}</div>
+                <div style={{fontSize:12,color:"var(--text2)"}}>L.{fmt(total)} vendidos</div>
+              </div>
+              <div style={{fontSize:20,fontWeight:800,color:pct>=100?"#1D9E75":"var(--text)",fontFamily:"monospace"}}>{pct}%</div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{background:"var(--border)",borderRadius:6,height:12,overflow:"hidden",marginBottom:8,position:"relative"}}>
+              <div style={{width:`${pct}%`,height:"100%",background:pct>=100?"#1D9E75":"linear-gradient(90deg,#185FA5,#3C3489)",borderRadius:6,transition:"width 0.6s"}}/>
+              {pct>15&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",paddingLeft:8,fontSize:10,fontWeight:700,color:"white"}}>{pct}%</div>}
+            </div>
+
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <div style={{fontSize:11,color:"var(--text2)",whiteSpace:"nowrap"}}>Meta L.</div>
+              <input type="number" value={editGoal[v.id]||""} onChange={e=>setEditGoal(p=>({...p,[v.id]:e.target.value}))}
+                placeholder="0" style={{flex:1,padding:"6px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,fontFamily:"monospace"}}/>
+              <button onClick={()=>saveMeta(v.id)} disabled={saving===v.id} style={{background:"#185FA5",color:"white",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {saving===v.id?"...":"Guardar"}
+              </button>
+            </div>
+
+            {meta>0&&<div style={{fontSize:11,color:"var(--text2)",marginTop:4}}>
+              {pct>=100?`🎉 Meta alcanzada — exceso L.${fmt(total-meta)}`:`Falta L.${fmt(meta-total)} · Meta: L.${fmt(meta)}`}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── LIVE TRACKING PAGE ──────────────────────────────────────────────────────
 function LiveTracking({techs,clients,mapsKey}){
   const [positions,setPositions]=useState([]);
@@ -2427,6 +2737,7 @@ function App(){
     {id:"dashboard",l:"Panel",i:"📊"},
     {id:"viajes",l:"Viajes",i:"🚗"},
     {id:"tracking",l:"En vivo",i:"🗺️"},
+    {id:"ventas",l:"Ventas",i:"🎯"},
     {id:"reportes",l:"Reportes",i:"📄"},
     {id:"inventario",l:"Inventario",i:"📦"},
     {id:"diprodi_inv",l:"Equipos",i:"🔬"},
@@ -2494,6 +2805,7 @@ function App(){
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
             {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
+            {page==="ventas"    &&isAdmin&&<SalesAdmin techs={techs}/>}
             {page==="diprodi_inv"&&isAdmin&&<DiprodInventario mapsKey={mapsKey}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
             {page==="mis_reportes"&&!isAdmin&&<AdminReports reports={reports.filter(r=>r.technicianId===user.id)} techs={techs} clients={clients} soloMio={true}/>}
