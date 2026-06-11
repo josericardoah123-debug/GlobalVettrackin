@@ -2217,6 +2217,18 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
         <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:8}}>Acerca de LabTrack</div>
         <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8}}>Versión 2.0 · Plataforma de operaciones de campo<br/>Diseñado para empresas de equipos de laboratorio en Honduras 🇭🇳<br/><br/><span style={{color:"#1D9E75",fontWeight:600}}>✓ Conectado a base de datos en vivo</span></div>
       </div>
+      <div style={{background:"#FCEBEB",border:"1px solid #E74C3C",borderRadius:12,padding:16}}>
+        <div style={{fontWeight:700,fontSize:14,color:"#C0392B",marginBottom:4}}>⚠️ Zona de pruebas</div>
+        <div style={{fontSize:12,color:"#7B241C",marginBottom:10}}>Solo usar para limpiar datos de prueba</div>
+        <button onClick={async()=>{
+          if(!confirm("¿Borrar TODOS los clientes? Esta acción no se puede deshacer.")) return;
+          await fetch("/api/clients/deleteall",{method:"POST"});
+          alert("✅ Clientes borrados. La página se va a recargar.");
+          window.location.reload();
+        }} style={{background:"#E74C3C",color:"white",border:"none",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          🗑️ Borrar todos los clientes
+        </button>
+      </div>
     </div>
   );
 }
