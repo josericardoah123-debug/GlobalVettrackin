@@ -691,6 +691,7 @@ function ClientEditForm({client,onSave,onDelete,mapsKey}){
   const [address,setAddress]=useState(client.address||"");
   const [lat,setLat]=useState(client.lat||"");
   const [lng,setLng]=useState(client.lng||"");
+  const [rtn,setRtn]=useState(client.rtn||"");
   const [saving,setSaving]=useState(false);
   const acRef=useRef(null);
   const inputRef=useRef(null);
@@ -715,7 +716,7 @@ function ClientEditForm({client,onSave,onDelete,mapsKey}){
 
   const handleSave=async()=>{
     setSaving(true);
-    await onSave({name,contact,phone,email,city,department,type,address,lat:+lat||null,lng:+lng||null});
+    await onSave({name,contact,phone,email,city,department,type,address,lat:+lat||null,lng:+lng||null,rtn});
     setSaving(false);
   };
 
@@ -731,6 +732,10 @@ function ClientEditForm({client,onSave,onDelete,mapsKey}){
             <input type={t} value={v} onChange={e=>s(e.target.value)} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
           </div>
         ))}
+      </div>
+      <div style={{marginBottom:8}}>
+        <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>RTN (Registro Tributario Nacional)</div>
+        <input value={rtn} onChange={e=>setRtn(e.target.value)} placeholder="Ej: 05019999123456" maxLength={14} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,fontFamily:"monospace"}}/>
       </div>
       <div style={{marginBottom:8}}>
         <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Tipo</div>
@@ -1574,9 +1579,15 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
     const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
     if(validDests.length===0) return;
     const dest=validDests[fromIdx];
-    // For mandado, use the place coords; otherwise use client coords
     const cl=dest?.type==="mandado"?null:clients.find(c=>c.id===dest?.clientId);
     const destCoords=dest?.type==="mandado"?dest.mandadoPlace:cl;
+    // If client has no coords, search by name in Google Maps
+    if(!destCoords?.lat&&cl&&mapsKey){
+      const searchQuery=encodeURIComponent(`${cl.name} ${cl.city} Honduras`);
+      const url=`https://www.google.com/maps/search/${searchQuery}`;
+      window.open(url,"_blank");
+      return;
+    }
     if(!destCoords&&!cl) return;
     // Use current GPS location as origin if available
     const originStr=userLat&&userLng
@@ -2364,6 +2375,73 @@ function FinanciadoForm({eq,onSave}){
 }
 
 
+
+// ─── ADD EQUIPO MODAL ────────────────────────────────────────────────────────
+function AddEquipoModal({onSave,onClose}){
+  const [form,setForm]=useState({
+    localizacion:"Bodega",cliente:"GlobalVet",tipo:"",modelo:"",serie:"",
+    fechaIngreso:new Date().toISOString().slice(0,10),fechaInstalacion:"",
+    versionSw:"",comentarios:"",estado:"bodega",modalidad:"leasing"
+  });
+  const [saving,setSaving]=useState(false);
+  const set=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+
+  const handleSave=async()=>{
+    if(!form.tipo&&!form.modelo){alert("Ingresa al menos el tipo o modelo del equipo.");return;}
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"var(--card)",borderRadius:16,overflow:"hidden",width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{background:"linear-gradient(135deg,#0C447C,#185FA5)",padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:15,fontWeight:700,color:"white"}}>➕ Agregar equipo</div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:"50%",width:28,height:28,color:"white",cursor:"pointer",fontSize:16}}>×</button>
+        </div>
+        <div style={{padding:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            {[["Tipo de equipo","tipo","Ej: Hematologia"],["Modelo","modelo","Ej: BC-20 Vet"],
+              ["No. de serie","serie","Ej: DF2-001"],["Versión SW","versionSw","Ej: 1.8"],
+              ["Cliente","cliente","Ej: GlobalVet"],["Localización","localizacion","Ej: Bodega"],
+              ["Fecha ingreso","fechaIngreso",""],["Fecha instalación","fechaInstalacion",""],
+            ].map(([l,k,ph])=>(
+              <div key={k}>
+                <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div>
+                <input type={k.includes("echa")?"date":"text"} value={form[k]} onChange={set(k)} placeholder={ph}
+                  style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Estado</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+              {[["bodega","📦 Bodega"],["instalado","✅ Instalado"],["financiado","💰 Financiado"],
+                ["contado","🧾 Contado"],["demostracion","🎯 Demo"],["reparacion","🔧 Reparación"]
+              ].map(([v,l])=>(
+                <button key={v} onClick={()=>setForm(p=>({...p,estado:v}))}
+                  style={{padding:"5px",borderRadius:6,border:"1px solid",borderColor:form.estado===v?"#185FA5":"var(--border)",background:form.estado===v?"#E6F1FB":"transparent",color:form.estado===v?"#185FA5":"var(--text2)",fontSize:10,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Comentarios</div>
+            <textarea value={form.comentarios} onChange={set("comentarios")} rows={2}
+              style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,resize:"vertical",fontFamily:"inherit"}}/>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={onClose} style={{flex:1,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={handleSave} disabled={saving} style={{flex:2,background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              {saving?"Guardando...":"💾 Guardar equipo"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── EXCEL MAPPER MODAL ──────────────────────────────────────────────────────
 function ExcelMapperModal({mapper,onConfirm,onClose}){
   const {columns,rows}=mapper;
@@ -2461,6 +2539,9 @@ function ExcelMapperModal({mapper,onConfirm,onClose}){
 function DiprodInventario({mapsKey}){
   const [tab,setTab]=useState("equipos");
   const [excelMapper,setExcelMapper]=useState(null);
+  const [showAddEquipo,setShowAddEquipo]=useState(false);
+  const [toastMsg,setToastMsg]=useState("");
+  const showToastLocal=msg=>{setToastMsg(msg);setTimeout(()=>setToastMsg(""),3000);};
   const [equipos,setEquipos]=useState([]);
   const [repuestos,setRepuestos]=useState([]);
   const [accesorios,setAccesorios]=useState([]);
@@ -2637,22 +2718,34 @@ function DiprodInventario({mapsKey}){
           <div style={{fontWeight:800,fontSize:20,color:"var(--text)"}}>📦 Inventario DIPRODI</div>
           <div style={{fontSize:13,color:"var(--text2)",marginTop:2}}>{stats.totalEquipos||0} equipos · {stats.totalRepuestos||0} repuestos · {stats.totalAccesorios||0} accesorios</div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           {equipos.length===0&&!loading&&(
-            <button onClick={importAll} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              ⬆️ Cargar inventario DIPRODI
+            <button onClick={importAll} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"9px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              ⬆️ Cargar DIPRODI
             </button>
           )}
-          <label style={{background:"#185FA5",color:"white",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <label style={{background:"#185FA5",color:"white",borderRadius:10,padding:"9px 14px",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             📊 Subir Excel
             <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={handleExcelUpload}/>
           </label>
+          <button onClick={()=>setShowAddEquipo(true)} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"9px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            ➕ Agregar equipo
+          </button>
+          <button onClick={()=>window.open("/api/diprodi/export","_blank")} style={{background:"var(--surface)",color:"var(--text)",border:"1px solid var(--border)",borderRadius:10,padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            📥 Exportar CSV
+          </button>
+          {toastMsg&&<span style={{fontSize:12,color:"#1D9E75",fontWeight:600}}>{toastMsg}</span>}
           {loading&&<span style={{fontSize:12,color:"var(--text2)"}}>Procesando...</span>}
         </div>
       </div>
 
       {/* Excel Mapper Modal */}
       {excelMapper&&<ExcelMapperModal mapper={excelMapper} onConfirm={async(mapping,rows)=>{await confirmExcelImport(mapping,rows);}} onClose={()=>setExcelMapper(null)}/>}
+      {/* Add Equipment Modal */}
+      {showAddEquipo&&<AddEquipoModal onSave={async(d)=>{
+        await fetch("/api/diprodi/equipos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});
+        setShowAddEquipo(false);await loadData();showToastLocal("Equipo agregado ✓");
+      }} onClose={()=>setShowAddEquipo(false)}/>}
 
       {/* Stats cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>

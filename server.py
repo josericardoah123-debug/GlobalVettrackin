@@ -55,7 +55,7 @@ def init_db():
         tbls=[
             "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'technician', color TEXT DEFAULT 'purple', phone TEXT DEFAULT '', status TEXT DEFAULT 'available', current_trip_id TEXT, rendimiento REAL DEFAULT 12, tipo_combustible TEXT DEFAULT 'gasolina', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS inventory (id TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT NOT NULL, serial TEXT DEFAULT '', category TEXT DEFAULT '', stock INTEGER DEFAULT 0, unit_cost REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
-            "CREATE TABLE IF NOT EXISTS clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT DEFAULT '', phone TEXT DEFAULT '', email TEXT DEFAULT '', city TEXT DEFAULT '', department TEXT DEFAULT '', type TEXT DEFAULT 'Clínica', lat REAL, lng REAL, address TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT DEFAULT '', phone TEXT DEFAULT '', email TEXT DEFAULT '', city TEXT DEFAULT '', department TEXT DEFAULT '', type TEXT DEFAULT 'Clínica', lat REAL, lng REAL, address TEXT DEFAULT '', rtn TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS trips (id TEXT PRIMARY KEY, technician_id TEXT NOT NULL, client_id TEXT NOT NULL, date TEXT NOT NULL, status TEXT DEFAULT 'pendiente', trip_type TEXT DEFAULT 'entrega', equipment_ids TEXT DEFAULT '[]', origin_lat REAL, origin_lng REAL, origin_label TEXT, destination_lat REAL, destination_lng REAL, destination_label TEXT, stops TEXT DEFAULT '[]', route_points TEXT DEFAULT '[]', start_time TEXT DEFAULT '', end_time TEXT DEFAULT '', km REAL DEFAULT 0, reimbursement REAL DEFAULT 0, notes TEXT DEFAULT '', report_id TEXT, report_num TEXT, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS visit_reports (id TEXT PRIMARY KEY, trip_id TEXT, technician_id TEXT, client_id TEXT, report_num TEXT, fecha TEXT, hora_llegada TEXT DEFAULT '', hora_salida TEXT DEFAULT '', marca TEXT DEFAULT '', modelo TEXT DEFAULT '', serie TEXT DEFAULT '', condicion TEXT DEFAULT '', reparaciones TEXT DEFAULT '', repuestos TEXT DEFAULT '', calibracion INTEGER, control_calidad INTEGER, signed INTEGER DEFAULT 0, sig_time TEXT DEFAULT '', sig_data TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
@@ -78,7 +78,7 @@ def init_db():
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT DEFAULT 'technician',color TEXT DEFAULT 'purple',phone TEXT DEFAULT '',status TEXT DEFAULT 'available',current_trip_id TEXT,rendimiento REAL DEFAULT 12,tipo_combustible TEXT DEFAULT 'gasolina',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS inventory(id TEXT PRIMARY KEY,name TEXT NOT NULL,model TEXT NOT NULL,serial TEXT DEFAULT '',category TEXT DEFAULT '',stock INTEGER DEFAULT 0,unit_cost REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
-        CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY,name TEXT NOT NULL,contact TEXT DEFAULT '',phone TEXT DEFAULT '',email TEXT DEFAULT '',city TEXT DEFAULT '',department TEXT DEFAULT '',type TEXT DEFAULT 'Clínica',lat REAL,lng REAL,address TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS clients(id TEXT PRIMARY KEY,name TEXT NOT NULL,contact TEXT DEFAULT '',phone TEXT DEFAULT '',email TEXT DEFAULT '',city TEXT DEFAULT '',department TEXT DEFAULT '',type TEXT DEFAULT 'Clínica',lat REAL,lng REAL,address TEXT DEFAULT '',rtn TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS trips(id TEXT PRIMARY KEY,technician_id TEXT NOT NULL,client_id TEXT NOT NULL,date TEXT NOT NULL,status TEXT DEFAULT 'pendiente',trip_type TEXT DEFAULT 'entrega',equipment_ids TEXT DEFAULT '[]',origin_lat REAL,origin_lng REAL,origin_label TEXT,destination_lat REAL,destination_lng REAL,destination_label TEXT,stops TEXT DEFAULT '[]',route_points TEXT DEFAULT '[]',start_time TEXT DEFAULT '',end_time TEXT DEFAULT '',km REAL DEFAULT 0,reimbursement REAL DEFAULT 0,notes TEXT DEFAULT '',report_id TEXT,report_num TEXT,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS visit_reports(id TEXT PRIMARY KEY,trip_id TEXT,technician_id TEXT,client_id TEXT,report_num TEXT,fecha TEXT,hora_llegada TEXT DEFAULT '',hora_salida TEXT DEFAULT '',marca TEXT DEFAULT '',modelo TEXT DEFAULT '',serie TEXT DEFAULT '',condicion TEXT DEFAULT '',reparaciones TEXT DEFAULT '',repuestos TEXT DEFAULT '',calibracion INTEGER,control_calidad INTEGER,signed INTEGER DEFAULT 0,sig_time TEXT DEFAULT '',sig_data TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
@@ -258,7 +258,7 @@ def update_client(cid):
     d=request.get_json(); conn=get_db(); fields,vals=[],[]
     for k,col in [("name","name"),("contact","contact"),("phone","phone"),("email","email"),
                   ("city","city"),("department","department"),("type","type"),
-                  ("address","address"),("lat","lat"),("lng","lng")]:
+                  ("address","address"),("lat","lat"),("lng","lng"),("rtn","rtn")]:
         if k in d: fields.append(f"{col}=?"); vals.append(d[k])
     if fields:
         vals.append(cid); ex(conn,f"UPDATE clients SET {','.join(fields)} WHERE id=?",vals); conn.commit()
@@ -742,6 +742,28 @@ def delete_all_clients():
     ex(conn,"DELETE FROM clients")
     conn.commit(); conn.close()
     return jsonify({"ok":True})
+
+@app.route("/api/diprodi/export")
+def export_inventory():
+    """Export inventory as CSV"""
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM diprodi_equipos ORDER BY num")
+    equipos = rlist(cur.fetchall())
+    conn.close()
+    
+    import io, csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["#","Localización","Cliente","Tipo","Modelo","Serie","Fecha Ingreso","Fecha Instalación","Version SW","Estado","Comentarios"])
+    for e in equipos:
+        writer.writerow([e.get("num",""),e.get("localizacion",""),e.get("cliente",""),
+            e.get("tipo",""),e.get("modelo",""),e.get("serie",""),
+            e.get("fecha_ingreso",""),e.get("fecha_instalacion",""),
+            e.get("version_sw",""),e.get("estado",""),e.get("comentarios","")])
+    
+    from flask import Response
+    return Response(output.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition":"attachment;filename=inventario_diprodi.csv"})
 
 # ─── STATIC ───────────────────────────────────────────────────────────────────
 @app.route("/")
