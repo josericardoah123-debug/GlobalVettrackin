@@ -2363,6 +2363,101 @@ function FinanciadoForm({eq,onSave}){
   );
 }
 
+
+// ─── EXCEL MAPPER MODAL ──────────────────────────────────────────────────────
+function ExcelMapperModal({mapper,onConfirm,onClose}){
+  const {columns,rows}=mapper;
+  const [mapping,setMapping]=useState(mapper.mapping||{});
+  
+  const fields=[
+    {key:"cliente",label:"Cliente / Veterinaria",required:true,color:"#0F6E56"},
+    {key:"localizacion",label:"Ciudad / Localización",required:false,color:"#185FA5"},
+    {key:"tipo",label:"Tipo de equipo",required:false,color:"#7B6CF6"},
+    {key:"modelo",label:"Modelo",required:false,color:"#EF9F27"},
+    {key:"serie",label:"Número de serie",required:false,color:"#185FA5"},
+    {key:"fechaInstalacion",label:"Fecha de instalación",required:false,color:"#1D9E75"},
+    {key:"fechaIngreso",label:"Fecha de ingreso",required:false,color:"#1D9E75"},
+    {key:"versionSw",label:"Versión de software",required:false,color:"#999"},
+    {key:"comentarios",label:"Comentarios",required:false,color:"#999"},
+  ];
+
+  // Preview first 3 rows
+  const preview=rows.slice(0,3);
+  const canImport=mapping.cliente&&mapping.cliente!=="";
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,overflowY:"auto",padding:"20px 10px"}}>
+      <div style={{maxWidth:600,margin:"0 auto",background:"var(--card)",borderRadius:16,overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{background:"linear-gradient(135deg,#0C447C,#185FA5)",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:"white"}}>📊 Mapear columnas del Excel</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>{rows.length} filas detectadas · {columns.length} columnas</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:"50%",width:30,height:30,color:"white",cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+
+        <div style={{padding:20}}>
+          <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>Dile a la app qué columna de tu Excel corresponde a cada campo. Solo el campo <strong style={{color:"#0F6E56"}}>Cliente</strong> es obligatorio.</div>
+
+          {/* Field mapping */}
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+            {fields.map(f=>(
+              <div key={f.key} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
+                <div style={{fontSize:12,fontWeight:f.required?700:400,color:f.required?f.color:"var(--text2)"}}>
+                  {f.required?"⭐ ":""}{f.label}
+                </div>
+                <select value={mapping[f.key]||""} onChange={e=>setMapping(p=>({...p,[f.key]:e.target.value}))}
+                  style={{padding:"6px 8px",borderRadius:7,border:`1px solid ${mapping[f.key]?"#185FA5":"var(--border)"}`,background:"var(--surface)",color:"var(--text)",fontSize:12}}>
+                  <option value="">— No mapear —</option>
+                  {columns.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          {/* Preview */}
+          {mapping.cliente&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text2)",marginBottom:8}}>Vista previa (primeras 3 filas):</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <thead>
+                    <tr style={{background:"var(--surface)"}}>
+                      {["Cliente","Ciudad","Tipo","Modelo","Serie"].map(h=>(
+                        <th key={h} style={{padding:"5px 8px",textAlign:"left",color:"var(--text2)",borderBottom:"1px solid var(--border)"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((r,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid var(--border)"}}>
+                        <td style={{padding:"5px 8px",color:"var(--text)",fontWeight:600}}>{r[mapping.cliente]||"—"}</td>
+                        <td style={{padding:"5px 8px",color:"var(--text2)"}}>{r[mapping.localizacion]||"—"}</td>
+                        <td style={{padding:"5px 8px",color:"var(--text2)"}}>{r[mapping.tipo]||"—"}</td>
+                        <td style={{padding:"5px 8px",color:"var(--text2)"}}>{r[mapping.modelo]||"—"}</td>
+                        <td style={{padding:"5px 8px",color:"var(--text2)",fontFamily:"monospace"}}>{r[mapping.serie]||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={onClose} style={{flex:1,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>onConfirm(mapping,rows)} disabled={!canImport}
+              style={{flex:2,background:canImport?"#0F6E56":"#ccc",color:"white",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:canImport?"pointer":"not-allowed"}}>
+              ✅ Importar {rows.length} equipos
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DiprodInventario({mapsKey}){
   const [tab,setTab]=useState("equipos");
   const [equipos,setEquipos]=useState([]);
@@ -2554,6 +2649,9 @@ function DiprodInventario({mapsKey}){
           {loading&&<span style={{fontSize:12,color:"var(--text2)"}}>Procesando...</span>}
         </div>
       </div>
+
+      {/* Excel Mapper Modal */}
+      {excelMapper&&<ExcelMapperModal mapper={excelMapper} onConfirm={confirmExcelImport} onClose={()=>setExcelMapper(null)}/>}
 
       {/* Stats cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
