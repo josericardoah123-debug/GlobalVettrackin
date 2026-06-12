@@ -65,6 +65,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS sales_goals (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, meta REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS sales_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, monto REAL DEFAULT 0, descripcion TEXT DEFAULT '', cliente TEXT DEFAULT '', fecha TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS odometer_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, km_inicio REAL DEFAULT 0, km_fin REAL DEFAULT 0, factura_monto REAL DEFAULT 0, km_laborales REAL DEFAULT 0, reembolso REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
         ]
         for t in tbls:
             try: cur.execute(t)
@@ -88,6 +89,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sales_goals(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,meta REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS sales_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,monto REAL DEFAULT 0,descripcion TEXT DEFAULT '',cliente TEXT DEFAULT '',fecha TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS odometer_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,km_inicio REAL DEFAULT 0,km_fin REAL DEFAULT 0,factura_monto REAL DEFAULT 0,km_laborales REAL DEFAULT 0,reembolso REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         """)
         for k,v in [('rate_per_km','5.0'),('maps_api_key',''),('company_name','DIPRODI'),('fuel_gas_price','95.0'),('fuel_diesel_price','85.0')]:
             conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
@@ -764,6 +766,238 @@ def export_inventory():
     from flask import Response
     return Response(output.getvalue(), mimetype="text/csv",
         headers={"Content-Disposition":"attachment;filename=inventario_diprodi.csv"})
+
+# ─── CLIENT BOOKING ──────────────────────────────────────────────────────────
+@app.route("/api/booking/slots")
+def get_slots():
+    """Get available booking slots for next 7 days"""
+    conn = get_db()
+    # Get existing bookings for next 7 days
+    from datetime import timedelta
+    today = datetime.now().date()
+    slots = []
+    for i in range(1, 8):
+        d = today + timedelta(days=i)
+        if d.weekday() < 5:  # Monday-Friday only
+            date_str = d.strftime("%Y-%m-%d")
+            cur = ex(conn, "SELECT COUNT(*) as c FROM bookings WHERE date=?", (date_str,))
+            row = r2d(cur.fetchone())
+            count = int(row.get("c") or 0)
+            for hour in ["08:00","09:00","10:00","11:00","14:00","15:00","16:00"]:
+                cur2 = ex(conn, "SELECT id FROM bookings WHERE date=? AND time=? AND status!='cancelado'", (date_str, hour))
+                booked = r2d(cur2.fetchone())
+                slots.append({"date": date_str, "time": hour, "available": booked is None})
+    conn.close()
+    return jsonify(slots)
+
+@app.route("/api/booking", methods=["POST"])
+def create_booking():
+    d = request.get_json()
+    bid = "book_" + uuid.uuid4().hex[:10]
+    conn = get_db()
+    # Check slot is still available
+    cur = ex(conn, "SELECT id FROM bookings WHERE date=? AND time=? AND status!='cancelado'", (d.get("date",""), d.get("time","")))
+    if r2d(cur.fetchone()):
+        conn.close()
+        return jsonify({"error": "Este horario ya no está disponible"}), 400
+    ex(conn, """INSERT INTO bookings(id,client_name,client_phone,client_email,equipo,tipo_servicio,date,time,status,notas)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+       (bid, d.get("clientName",""), d.get("clientPhone",""), d.get("clientEmail",""),
+        d.get("equipo",""), d.get("tipoServicio","mantenimiento"),
+        d.get("date",""), d.get("time",""), "pendiente", d.get("notas","")))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": bid})
+
+@app.route("/api/booking", methods=["GET"])
+def get_bookings():
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM bookings ORDER BY date, time")
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/booking/<bid>", methods=["PATCH"])
+def update_booking(bid):
+    d = request.get_json()
+    conn = get_db()
+    fields, vals = [], []
+    for k,col in [("status","status"),("technicianId","technician_id"),("notas","notas")]:
+        if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    if fields:
+        vals.append(bid)
+        ex(conn, f"UPDATE bookings SET {','.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/agendar")
+@app.route("/agendar/<company>")
+def booking_page(company="DIPRODI"):
+    """Public booking page for clients"""
+    html = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Agendar servicio técnico</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#f0f4f8;min-height:100vh;padding:20px;}
+.container{max-width:480px;margin:0 auto;}
+.header{background:linear-gradient(135deg,#0C447C,#1D9E75);border-radius:16px;padding:24px;text-align:center;color:white;margin-bottom:20px;}
+.logo{height:50px;margin-bottom:12px;}
+h1{font-size:20px;font-weight:700;margin-bottom:4px;}
+.subtitle{font-size:13px;opacity:0.85;}
+.card{background:white;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+.card h2{font-size:15px;font-weight:700;color:#185FA5;margin-bottom:14px;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:12px;color:#666;margin-bottom:4px;font-weight:600;}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;color:#333;font-family:inherit;}
+.field textarea{resize:vertical;min-height:70px;}
+.slot-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.slot-date{font-weight:700;font-size:13px;color:#333;margin:10px 0 6px;border-top:1px solid #eee;padding-top:10px;}
+.slot-date:first-child{border-top:none;margin-top:0;}
+.slot-btn{padding:8px;border-radius:8px;border:1px solid #ddd;background:white;font-size:12px;cursor:pointer;text-align:center;transition:all 0.15s;}
+.slot-btn:hover:not(:disabled){border-color:#185FA5;background:#E6F1FB;color:#185FA5;}
+.slot-btn.selected{background:#185FA5;color:white;border-color:#185FA5;font-weight:700;}
+.slot-btn:disabled{opacity:0.4;cursor:not-allowed;background:#f5f5f5;}
+.btn-submit{width:100%;background:#1D9E75;color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;}
+.btn-submit:disabled{opacity:0.5;cursor:not-allowed;}
+.success{background:#E1F5EE;border:1px solid #5DCAA5;border-radius:12px;padding:24px;text-align:center;display:none;}
+.success h2{color:#0F6E56;font-size:18px;margin-bottom:8px;}
+.success p{color:#085041;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <img src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" class="logo" alt="DIPRODI" onerror="this.style.display='none'"/>
+    <h1>Agendar servicio técnico</h1>
+    <div class="subtitle">Selecciona fecha, hora y completa tus datos</div>
+  </div>
+
+  <div class="card" id="formCard">
+    <h2>📋 Tipo de servicio</h2>
+    <div class="field">
+      <label>¿Qué necesitas?</label>
+      <select id="tipoServicio">
+        <option value="mantenimiento">🔧 Mantenimiento preventivo</option>
+        <option value="reparacion">🛠️ Reparación / Emergencia</option>
+        <option value="instalacion">⚙️ Instalación de equipo</option>
+        <option value="capacitacion">📚 Capacitación</option>
+        <option value="otro">📋 Otro</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Equipo (opcional)</label>
+      <input type="text" id="equipo" placeholder="Ej: Hematólogo BC-20 Vet"/>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📅 Selecciona fecha y hora</h2>
+    <div id="slots"><div style="text-align:center;padding:20px;color:#999;">Cargando horarios disponibles...</div></div>
+  </div>
+
+  <div class="card">
+    <h2>👤 Tus datos</h2>
+    <div class="field"><label>Nombre completo *</label><input type="text" id="clientName" placeholder="Ej: Dr. Juan Pérez"/></div>
+    <div class="field"><label>Teléfono *</label><input type="tel" id="clientPhone" placeholder="+504 9xxx-xxxx"/></div>
+    <div class="field"><label>Correo electrónico</label><input type="email" id="clientEmail" placeholder="correo@veterinaria.hn"/></div>
+    <div class="field"><label>Notas adicionales</label><textarea id="notas" placeholder="Describe el problema o lo que necesitas..."></textarea></div>
+    <button class="btn-submit" id="submitBtn" onclick="submitBooking()" disabled>📅 Confirmar cita</button>
+  </div>
+
+  <div class="success" id="successCard">
+    <div style="font-size:48px;margin-bottom:12px;">✅</div>
+    <h2>¡Cita agendada!</h2>
+    <p id="successMsg">Tu solicitud ha sido enviada. Un técnico se pondrá en contacto contigo para confirmar.</p>
+    <div style="margin-top:16px;font-size:12px;color:#085041;">DIPRODI · Tegucigalpa, Honduras · Telefax: 2230-7121</div>
+  </div>
+</div>
+
+<script>
+let selectedSlot = null;
+const days = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+async function loadSlots(){
+  const res = await fetch('/api/booking/slots');
+  const slots = await res.json();
+  
+  // Group by date
+  const byDate = {};
+  slots.forEach(s => { if(!byDate[s.date]) byDate[s.date]=[]; byDate[s.date].push(s); });
+  
+  let html = '';
+  for(const date in byDate){
+    const d = new Date(date+'T12:00:00');
+    html += `<div class="slot-date">${days[d.getDay()]} ${d.getDate()} de ${months[d.getMonth()]}</div>`;
+    html += '<div class="slot-grid">';
+    byDate[date].forEach(s => {
+      const id = `slot-${s.date}-${s.time}`;
+      html += `<button class="slot-btn" id="${id}" ${!s.available?'disabled':''} onclick="selectSlot('${s.date}','${s.time}','${id}')">
+        ${s.time} ${!s.available?'(ocupado)':''}
+      </button>`;
+    });
+    html += '</div>';
+  }
+  document.getElementById('slots').innerHTML = html || '<p style="color:#999;text-align:center">No hay horarios disponibles esta semana.</p>';
+}
+
+function selectSlot(date, time, id){
+  document.querySelectorAll('.slot-btn').forEach(b=>b.classList.remove('selected'));
+  document.getElementById(id).classList.add('selected');
+  selectedSlot = {date, time};
+  document.getElementById('submitBtn').disabled = false;
+}
+
+async function submitBooking(){
+  const name = document.getElementById('clientName').value.trim();
+  const phone = document.getElementById('clientPhone').value.trim();
+  if(!name||!phone){alert('Por favor completa tu nombre y teléfono.');return;}
+  if(!selectedSlot){alert('Por favor selecciona una fecha y hora.');return;}
+  
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').textContent = 'Enviando...';
+  
+  const res = await fetch('/api/booking', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      clientName: name,
+      clientPhone: phone,
+      clientEmail: document.getElementById('clientEmail').value,
+      equipo: document.getElementById('equipo').value,
+      tipoServicio: document.getElementById('tipoServicio').value,
+      date: selectedSlot.date,
+      time: selectedSlot.time,
+      notas: document.getElementById('notas').value
+    })
+  });
+  
+  const data = await res.json();
+  if(data.ok){
+    document.getElementById('formCard').style.display='none';
+    document.querySelectorAll('.card')[1].style.display='none';
+    document.querySelectorAll('.card')[2].style.display='none';
+    document.getElementById('successCard').style.display='block';
+    document.getElementById('successMsg').textContent = 
+      `Cita solicitada para el ${selectedSlot.date} a las ${selectedSlot.time}. Un técnico te contactará para confirmar.`;
+  } else {
+    alert(data.error || 'Error al agendar. Intenta de nuevo.');
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = '📅 Confirmar cita';
+  }
+}
+
+loadSlots();
+</script>
+</body>
+</html>"""
+    from flask import Response
+    return Response(html, mimetype='text/html')
 
 # ─── STATIC ───────────────────────────────────────────────────────────────────
 @app.route("/")

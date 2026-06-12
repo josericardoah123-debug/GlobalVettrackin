@@ -972,28 +972,37 @@ function Tecnicos({techs,onAdd,onUpdate,onDelete,trips}){
           const tTrips=trips.filter(t=>t.technicianId===tech.id);
           const initials=tech.name.split(" ").map(w=>w[0]).join("").slice(0,2);
           return(
-            <div key={tech.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16}}>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-                <Avatar initials={initials} color={tech.color} size={50}/>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{tech.name}</div>
-                  <div style={{fontSize:12,color:"var(--text2)",marginTop:1}}>{tech.email}</div>
-                  <div style={{fontSize:12,color:"var(--text2)"}}>{tech.phone}</div>
+            <div key={tech.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+              {/* Top row: avatar + name + role badge */}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <Avatar initials={initials} color={tech.color} size={42}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tech.name}</div>
+                  {tech.phone&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>📞 {tech.phone}</div>}
                 </div>
-                <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
-                  <Badge type={tech.status==="on_route"?"on_route":"available"}>{tech.status==="on_route"?"En ruta":"Disponible"}</Badge>
-                  <span style={{fontSize:10,background:"var(--surface)",color:"var(--text2)",padding:"2px 7px",borderRadius:10}}>{tech.role==="admin"?"Admin":tech.role==="ventas"?"Ventas":"Técnico"}</span>
+                <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"flex-end",flexShrink:0}}>
+                  <span style={{fontSize:10,background:tech.role==="admin"?"#EEEDFE":tech.role==="ventas"?"#E1F5EE":"#E6F1FB",color:tech.role==="admin"?"#3C3489":tech.role==="ventas"?"#0F6E56":"#185FA5",padding:"2px 8px",borderRadius:10,fontWeight:600,whiteSpace:"nowrap"}}>
+                    {tech.role==="admin"?"👑 Admin":tech.role==="ventas"?"🤝 Ventas":"🔧 Técnico"}
+                  </span>
+                  <span style={{fontSize:10,background:tech.status==="on_route"?"#FFF3E0":"#E1F5EE",color:tech.status==="on_route"?"#EF9F27":"#1D9E75",padding:"2px 8px",borderRadius:10,fontWeight:600}}>
+                    {tech.status==="on_route"?"🚗 En ruta":"✅ Disponible"}
+                  </span>
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,borderTop:"1px solid var(--border)",paddingTop:12,marginBottom:10}}>
-                {[["Viajes",tTrips.length],["Km",tTrips.reduce((s,t)=>s+t.km,0).toFixed(0)],["Rend.",`${tech.rendimiento||12}km/L`]].map(([l,v])=>(
-                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"var(--text)"}}>{v}</div><div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em",marginTop:2}}>{l}</div></div>
+              {/* Stats row */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,background:"var(--surface)",borderRadius:8,padding:"8px 4px",marginBottom:10}}>
+                {[["Viajes",tTrips.length],["Km total",tTrips.reduce((s,t)=>s+t.km,0).toFixed(0)],["Rendim.",`${tech.rendimiento||12}km/L`]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}>
+                    <div style={{fontSize:15,fontWeight:800,color:"var(--text)"}}>{v}</div>
+                    <div style={{fontSize:9,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.03em",marginTop:1}}>{l}</div>
+                  </div>
                 ))}
               </div>
+              {/* Action buttons */}
               <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>openEdit(tech)} style={{flex:1,background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Editar</button>
                 <button onClick={async()=>{
-                  if(!confirm(`¿Eliminar a ${tech.name}? Esta acción no se puede deshacer.`)) return;
+                  if(!confirm(`¿Eliminar a ${tech.name}?`)) return;
                   await onDelete(tech.id);
                 }} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑️</button>
               </div>
@@ -3112,6 +3121,97 @@ function SalesAdmin({techs}){
   );
 }
 
+
+// ─── AGENDA ADMIN PAGE ───────────────────────────────────────────────────────
+function AgendaAdmin({techs}){
+  const [bookings,setBookings]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const bookingUrl=window.location.origin+"/agendar";
+
+  useEffect(()=>{
+    fetch("/api/booking").then(r=>r.json()).then(b=>{setBookings(b);setLoading(false);}).catch(()=>setLoading(false));
+  },[]);
+
+  const updateStatus=async(id,status)=>{
+    await fetch(`/api/booking/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
+    setBookings(p=>p.map(b=>b.id===id?{...b,status}:b));
+  };
+
+  const statusColor={pendiente:"#EF9F27",confirmado:"#1D9E75",completado:"#185FA5",cancelado:"#E74C3C"};
+  const statusBg={pendiente:"#FFF3E0",confirmado:"#E1F5EE",completado:"#E6F1FB",cancelado:"#FCEBEB"};
+  const pending=bookings.filter(b=>b.status==="pendiente");
+  const confirmed=bookings.filter(b=>b.status==="confirmado");
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontWeight:800,fontSize:20,color:"var(--text)",marginBottom:4}}>📅 Agenda de servicios</div>
+
+      {/* Booking link */}
+      <div style={{background:"linear-gradient(135deg,#0C447C,#1D9E75)",borderRadius:12,padding:16,marginBottom:16,color:"white"}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>🔗 Link para que los clientes agenden</div>
+        <div style={{background:"rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 12px",fontSize:12,fontFamily:"monospace",marginBottom:8,wordBreak:"break-all"}}>{bookingUrl}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{navigator.clipboard.writeText(bookingUrl);alert("Link copiado ✓");}} style={{background:"rgba(255,255,255,0.2)",color:"white",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>📋 Copiar link</button>
+          <button onClick={()=>window.open(bookingUrl,"_blank")} style={{background:"rgba(255,255,255,0.2)",color:"white",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🌐 Abrir página</button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+        {[["Pendientes",pending.length,"#EF9F27","#FFF3E0"],["Confirmados",confirmed.length,"#1D9E75","#E1F5EE"],
+          ["Completados",bookings.filter(b=>b.status==="completado").length,"#185FA5","#E6F1FB"],
+          ["Total",bookings.length,"var(--text)","var(--surface)"]
+        ].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:c,textTransform:"uppercase",fontWeight:600}}>{l}</div>
+            <div style={{fontSize:22,fontWeight:800,color:c,marginTop:2}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading&&<div style={{textAlign:"center",padding:30,color:"var(--text2)"}}>Cargando...</div>}
+
+      {/* Bookings list */}
+      {[["⏳ Pendientes de confirmar",pending],["✅ Confirmados",confirmed],
+        ["📋 Historial",[...bookings.filter(b=>b.status==="completado"),...bookings.filter(b=>b.status==="cancelado")]]
+      ].map(([title,list])=>list.length>0&&(
+        <div key={title} style={{marginBottom:20}}>
+          <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:8}}>{title}</div>
+          {list.map(b=>(
+            <div key={b.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{b.client_name}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>📞 {b.client_phone} {b.client_email?`· ✉️ ${b.client_email}`:""}</div>
+                  <div style={{fontSize:12,color:"#185FA5",marginTop:2,fontWeight:600}}>📅 {b.date} a las {b.time}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>{b.tipo_servicio==="mantenimiento"?"🔧 Mantenimiento preventivo":b.tipo_servicio==="reparacion"?"🛠️ Reparación/Emergencia":b.tipo_servicio==="instalacion"?"⚙️ Instalación":b.tipo_servicio==="capacitacion"?"📚 Capacitación":"📋 Otro"}{b.equipo?` · ${b.equipo}`:""}</div>
+                  {b.notas&&<div style={{fontSize:11,color:"var(--text2)",marginTop:3,fontStyle:"italic"}}>"{b.notas}"</div>}
+                </div>
+                <span style={{fontSize:11,background:statusBg[b.status],color:statusColor[b.status],padding:"3px 8px",borderRadius:4,fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>{b.status}</span>
+              </div>
+              {b.status==="pendiente"&&(
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>updateStatus(b.id,"confirmado")} style={{flex:1,background:"#E1F5EE",color:"#0F6E56",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✅ Confirmar</button>
+                  <button onClick={()=>updateStatus(b.id,"cancelado")} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✗</button>
+                </div>
+              )}
+              {b.status==="confirmado"&&(
+                <button onClick={()=>updateStatus(b.id,"completado")} style={{width:"100%",background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ Marcar como completado</button>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+      {!loading&&bookings.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:"var(--text2)"}}>
+          <div style={{fontSize:40,marginBottom:8}}>📅</div>
+          <div>Sin citas aún. Comparte el link con tus clientes.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LIVE TRACKING PAGE ──────────────────────────────────────────────────────
 function LiveTracking({techs,clients,mapsKey}){
   const [positions,setPositions]=useState([]);
@@ -3394,7 +3494,8 @@ function App(){
     {id:"inventario",l:"Inventario",i:"📦"},
     {id:"diprodi_inv",l:"Equipos",i:"🔬"},
     {id:"clientes",l:"Clientes",i:"🏥"},
-    {id:"tecnicos",l:"Técnicos",i:"👷"},
+    {id:"tecnicos",l:"Empleados",i:"👥"},
+    {id:"agenda",l:"Agenda",i:"📅"},
     {id:"ajustes",l:"Ajustes",i:"⚙️"},
   ];
   const techNav=[
@@ -3457,6 +3558,7 @@ function App(){
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} onUpdate={updateTech} onDelete={deleteTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
             {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
+            {page==="agenda"    &&isAdmin&&<AgendaAdmin techs={techs}/>}
             {page==="ventas"    &&isAdmin&&<SalesAdmin techs={techs}/>}
             {page==="diprodi_inv"&&isAdmin&&<DiprodInventario mapsKey={mapsKey}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}
