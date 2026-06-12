@@ -65,7 +65,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS sales_goals (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, meta REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS sales_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, monto REAL DEFAULT 0, descripcion TEXT DEFAULT '', cliente TEXT DEFAULT '', fecha TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS odometer_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, km_inicio REAL DEFAULT 0, km_fin REAL DEFAULT 0, factura_monto REAL DEFAULT 0, km_laborales REAL DEFAULT 0, reembolso REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
-            "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', modalidad TEXT DEFAULT 'presencial', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', accepted_at TEXT DEFAULT '', completed_at TEXT DEFAULT '', video_link TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
         ]
         for t in tbls:
             try: cur.execute(t)
@@ -89,7 +89,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sales_goals(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,meta REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS sales_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,monto REAL DEFAULT 0,descripcion TEXT DEFAULT '',cliente TEXT DEFAULT '',fecha TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS odometer_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,km_inicio REAL DEFAULT 0,km_fin REAL DEFAULT 0,factura_monto REAL DEFAULT 0,km_laborales REAL DEFAULT 0,reembolso REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
-        CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',modalidad TEXT DEFAULT 'presencial',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',accepted_at TEXT DEFAULT '',completed_at TEXT DEFAULT '',video_link TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         """)
         for k,v in [('rate_per_km','5.0'),('maps_api_key',''),('company_name','DIPRODI'),('fuel_gas_price','95.0'),('fuel_diesel_price','85.0')]:
             conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
@@ -800,10 +800,10 @@ def create_booking():
     if r2d(cur.fetchone()):
         conn.close()
         return jsonify({"error": "Este horario ya no está disponible"}), 400
-    ex(conn, """INSERT INTO bookings(id,client_name,client_phone,client_email,equipo,tipo_servicio,date,time,status,notas)
-        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+    ex(conn, """INSERT INTO bookings(id,client_name,client_phone,client_email,equipo,tipo_servicio,modalidad,date,time,status,notas)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
        (bid, d.get("clientName",""), d.get("clientPhone",""), d.get("clientEmail",""),
-        d.get("equipo",""), d.get("tipoServicio","mantenimiento"),
+        d.get("equipo",""), d.get("tipoServicio","mantenimiento"), d.get("modalidad","presencial"),
         d.get("date",""), d.get("time",""), "pendiente", d.get("notas","")))
     conn.commit()
     conn.close()
@@ -822,14 +822,31 @@ def update_booking(bid):
     d = request.get_json()
     conn = get_db()
     fields, vals = [], []
-    for k,col in [("status","status"),("technicianId","technician_id"),("notas","notas")]:
+    for k,col in [("status","status"),("technicianId","technician_id"),("notas","notas"),
+                  ("videoLink","video_link"),("acceptedAt","accepted_at"),("completedAt","completed_at")]:
         if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    # Auto-set timestamps
+    if d.get("status") == "confirmado" and "accepted_at" not in d:
+        fields.append("accepted_at=?"); vals.append(datetime.now().isoformat())
+    if d.get("status") == "completado" and "completed_at" not in d:
+        fields.append("completed_at=?"); vals.append(datetime.now().isoformat())
     if fields:
         vals.append(bid)
         ex(conn, f"UPDATE bookings SET {','.join(fields)} WHERE id=?", vals)
         conn.commit()
+    cur = ex(conn, "SELECT * FROM bookings WHERE id=?", (bid,))
+    row = r2d(cur.fetchone())
     conn.close()
-    return jsonify({"ok": True})
+    return jsonify(row or {"ok": True})
+
+@app.route("/api/booking/tech/<tech_id>")
+def get_tech_bookings(tech_id):
+    """Get bookings assigned to a technician"""
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM bookings WHERE technician_id=? AND status NOT IN ('cancelado','completado') ORDER BY date,time", (tech_id,))
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
 
 @app.route("/agendar")
 @app.route("/agendar/<company>")

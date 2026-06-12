@@ -1640,6 +1640,93 @@ function SalesGoalBar({user,clients=[]}){
   );
 }
 
+
+// ─── MIS CITAS (EMPLOYEE) ────────────────────────────────────────────────────
+function MisCitas({user}){
+  const [citas,setCitas]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    fetch(`/api/booking/tech/${user.id}`)
+      .then(r=>r.json())
+      .then(d=>{setCitas(d);setLoading(false);})
+      .catch(()=>setLoading(false));
+  },[]);
+
+  const tipoLabel={
+    mantenimiento:"🔧 Mantenimiento",reparacion:"🛠️ Reparación",
+    instalacion:"⚙️ Instalación",capacitacion:"📚 Capacitación",
+    videollamada:"📹 Videollamada",otro:"📋 Otro"
+  };
+
+  if(loading) return <div style={{textAlign:"center",padding:30,color:"var(--text2)"}}>Cargando...</div>;
+
+  return(
+    <div>
+      <div style={{fontWeight:700,fontSize:16,color:"var(--text)",marginBottom:4}}>📅 Mis citas asignadas</div>
+      <div style={{fontSize:12,color:"var(--text2)",marginBottom:14}}>{citas.length} cita{citas.length!==1?"s":""} pendiente{citas.length!==1?"s":""}</div>
+
+      {citas.length===0&&(
+        <div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)"}}>
+          <div style={{fontSize:36,marginBottom:8}}>📅</div>
+          <div>Sin citas asignadas por el momento</div>
+        </div>
+      )}
+
+      {citas.map(c=>(
+        <div key={c.id} style={{background:"var(--surface)",borderRadius:12,padding:14,marginBottom:10,border:"1px solid var(--border)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{c.client_name}</div>
+              <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>📞 {c.client_phone}</div>
+            </div>
+            <span style={{fontSize:11,background:c.modalidad==="videollamada"?"#E6F1FB":"#E1F5EE",color:c.modalidad==="videollamada"?"#185FA5":"#0F6E56",padding:"3px 8px",borderRadius:6,fontWeight:600,flexShrink:0}}>
+              {c.modalidad==="videollamada"?"📹 Video":"🏥 Presencial"}
+            </span>
+          </div>
+
+          {/* Date and service */}
+          <div style={{background:"var(--card)",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#185FA5"}}>📅 {c.date} a las {c.time}</div>
+                <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>{tipoLabel[c.tipo_servicio]||c.tipo_servicio}</div>
+                {c.equipo&&<div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>🔬 {c.equipo}</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {c.notas&&<div style={{fontSize:12,color:"var(--text2)",fontStyle:"italic",marginBottom:8}}>"{c.notas}"</div>}
+
+          {/* Video link */}
+          {c.video_link&&(
+            <a href={c.video_link} target="_blank" style={{display:"block",background:"#185FA5",color:"white",borderRadius:8,padding:"9px",fontSize:13,fontWeight:700,textAlign:"center",textDecoration:"none",marginBottom:8}}>
+              📹 Entrar a la videollamada
+            </a>
+          )}
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:6}}>
+            <a href={`tel:${c.client_phone}`} style={{flex:1,background:"#E1F5EE",color:"#0F6E56",borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,textAlign:"center",textDecoration:"none",display:"block"}}>
+              📞 Llamar
+            </a>
+            {c.status==="confirmado"&&(
+              <button onClick={async()=>{
+                await fetch(`/api/booking/${c.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"completado"})});
+                setCitas(p=>p.filter(x=>x.id!==c.id));
+              }} style={{flex:1,background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                ✓ Completar
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[],fuelGasPrice=95,fuelDieselPrice=85}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
@@ -2192,6 +2279,9 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
               </div>
             )}
 
+            {/* ── CITAS ── */}
+            {tab==="citas"&&<MisCitas user={user}/>}
+
             {/* ── REPORTES EMPLEADO ── */}
             {tab==="reportes_emp"&&(
               <div>
@@ -2285,7 +2375,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
 
           {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
-            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
+            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"citas",i:"📅",l:"Citas"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
               <button key={t.k} onClick={()=>{
                 if(t.k==="viaje"&&active){setTab("activo");return;}
                 if(t.k!=="inicio"&&t.k!=="historial"&&t.k!=="perfil") return;
@@ -3126,15 +3216,25 @@ function SalesAdmin({techs}){
 function AgendaAdmin({techs}){
   const [bookings,setBookings]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [assignModal,setAssignModal]=useState(null);
   const bookingUrl=window.location.origin+"/agendar";
 
   useEffect(()=>{
     fetch("/api/booking").then(r=>r.json()).then(b=>{setBookings(b);setLoading(false);}).catch(()=>setLoading(false));
   },[]);
 
-  const updateStatus=async(id,status)=>{
-    await fetch(`/api/booking/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
-    setBookings(p=>p.map(b=>b.id===id?{...b,status}:b));
+  const updateBooking=async(id,data)=>{
+    const res=await fetch(`/api/booking/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+    const updated=await res.json();
+    setBookings(p=>p.map(b=>b.id===id?{...b,...data,...updated}:b));
+  };
+
+  const assignTech=async(bookingId,techId)=>{
+    // Generate video link if videollamada
+    const booking=bookings.find(b=>b.id===bookingId);
+    const videoLink=booking?.modalidad==="videollamada"?`https://meet.jit.si/DIPRODI-${bookingId.slice(-6)}`:"";
+    await updateBooking(bookingId,{technicianId:techId,status:"confirmado",videoLink});
+    setAssignModal(null);
   };
 
   const statusColor={pendiente:"#EF9F27",confirmado:"#1D9E75",completado:"#185FA5",cancelado:"#E74C3C"};
@@ -3189,14 +3289,24 @@ function AgendaAdmin({techs}){
                 </div>
                 <span style={{fontSize:11,background:statusBg[b.status],color:statusColor[b.status],padding:"3px 8px",borderRadius:4,fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>{b.status}</span>
               </div>
+              {/* Technician assigned */}
+              {b.technician_id&&(()=>{
+                const t=techs.find(x=>x.id===b.technician_id);
+                return <div style={{fontSize:11,color:"#0F6E56",background:"#E1F5EE",borderRadius:6,padding:"4px 8px",marginBottom:6,display:"inline-block"}}>👤 Asignado: {t?.name||"Técnico"}</div>;
+              })()}
+              {/* Video link */}
+              {b.video_link&&<div style={{marginBottom:6}}><a href={b.video_link} target="_blank" style={{fontSize:11,color:"#185FA5",background:"#E6F1FB",borderRadius:6,padding:"4px 8px",textDecoration:"none",display:"inline-block"}}>📹 Entrar a videollamada</a></div>}
+              {/* Timestamps */}
+              {b.accepted_at&&<div style={{fontSize:10,color:"var(--text2)",marginBottom:4}}>✅ Aceptado: {new Date(b.accepted_at).toLocaleString("es-HN")}</div>}
+              {b.completed_at&&<div style={{fontSize:10,color:"var(--text2)",marginBottom:4}}>🏁 Completado: {new Date(b.completed_at).toLocaleString("es-HN")}</div>}
               {b.status==="pendiente"&&(
                 <div style={{display:"flex",gap:6}}>
-                  <button onClick={()=>updateStatus(b.id,"confirmado")} style={{flex:1,background:"#E1F5EE",color:"#0F6E56",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✅ Confirmar</button>
-                  <button onClick={()=>updateStatus(b.id,"cancelado")} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✗</button>
+                  <button onClick={()=>setAssignModal(b)} style={{flex:1,background:"#E1F5EE",color:"#0F6E56",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>👤 Asignar técnico</button>
+                  <button onClick={()=>updateBooking(b.id,{status:"cancelado"})} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✗</button>
                 </div>
               )}
               {b.status==="confirmado"&&(
-                <button onClick={()=>updateStatus(b.id,"completado")} style={{width:"100%",background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ Marcar como completado</button>
+                <button onClick={()=>updateBooking(b.id,{status:"completado"})} style={{width:"100%",background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:7,padding:"6px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ Marcar como completado</button>
               )}
             </div>
           ))}
@@ -3206,6 +3316,30 @@ function AgendaAdmin({techs}){
         <div style={{textAlign:"center",padding:"40px 0",color:"var(--text2)"}}>
           <div style={{fontSize:40,marginBottom:8}}>📅</div>
           <div>Sin citas aún. Comparte el link con tus clientes.</div>
+        </div>
+      )}
+
+      {/* Assign technician modal */}
+      {assignModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--card)",borderRadius:16,padding:20,width:"100%",maxWidth:360}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:4}}>👤 Asignar técnico</div>
+            <div style={{fontSize:12,color:"var(--text2)",marginBottom:12}}>
+              {assignModal.client_name} · {assignModal.date} {assignModal.time}
+              {assignModal.modalidad==="videollamada"&&<span style={{marginLeft:6,color:"#185FA5",fontWeight:600}}>📹 Videollamada</span>}
+            </div>
+            {techs.filter(t=>t.role!=="admin").map(t=>(
+              <button key={t.id} onClick={()=>assignTech(assignModal.id,t.id)}
+                style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 12px",marginBottom:6,textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                <Avatar initials={t.name.split(" ").map(w=>w[0]).join("").slice(0,2)} color={t.color||"blue"} size={32}/>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{t.name}</div>
+                  <div style={{fontSize:11,color:"var(--text2)"}}>{t.role==="ventas"?"Ventas":"Técnico"} · {t.status==="available"?"Disponible":"En ruta"}</div>
+                </div>
+              </button>
+            ))}
+            <button onClick={()=>setAssignModal(null)} style={{width:"100%",marginTop:4,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:8,padding:"8px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+          </div>
         </div>
       )}
     </div>
