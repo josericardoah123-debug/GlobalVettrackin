@@ -2404,36 +2404,42 @@ function DiprodInventario({mapsKey}){
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
 
-      // Smart column detection — finds columns by keywords regardless of exact name
-      const findCol=(row,keywords)=>{
-        const keys=Object.keys(row);
-        for(const kw of keywords){
-          const found=keys.find(k=>k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(kw.toLowerCase()));
-          if(found&&row[found]!==undefined&&row[found]!=="") return String(row[found]).trim();
+      // Convert Excel serial date to string
+      const excelDate=v=>{
+        if(!v) return "";
+        if(typeof v==="number"&&v>40000){
+          // Excel serial date — convert
+          const d=new Date((v-25569)*86400*1000);
+          return `${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`;
         }
-        return "";
+        return String(v).trim();
       };
 
-      const equiposData=rows.map((r,i)=>({
-        num:+findCol(r,["#","num","numero","no."])||i+1,
-        localizacion:findCol(r,["localizacion","localización","ciudad","ubicacion","lugar","departamento"]),
-        cliente:findCol(r,["veterinaria","cliente","nombre","clinica","hospital","empresa"]),
-        tipo:findCol(r,["equipo","tipo","categoria","categoría"]),
-        modelo:findCol(r,["modelo","model"]),
-        serie:findCol(r,["serie","serial","# de serie","numero de serie","sn","s/n"]),
-        fechaIngreso:findCol(r,["ingreso","compra","entrada","adquisicion"]),
-        fechaInstalacion:findCol(r,["instalacion","instalación","install"]),
-        versionSw:findCol(r,["version","software","sw","firmware"]),
-        comentarios:findCol(r,["comentario","nota","observacion","descripcion"]),
-      })).filter(r=>r.cliente&&r.cliente.toLowerCase()!=="veterinaria"&&r.cliente.toLowerCase()!=="cliente");
+      // Exact column names from DIPRODI Excel
+      const equiposData=rows.map((r,i)=>{
+        const num=r["#"]||i+1;
+        const loc=r["Localizacion"]||r["Localización"]||r["localizacion"]||"";
+        const cli=r["Veterinaria"]||r["Cliente"]||r["veterinaria"]||"";
+        const tipo=r["Equipo"]||r["equipo"]||r["Tipo"]||"";
+        const modelo=r["Modelo de Equipo"]||r["Modelo"]||r["modelo"]||"";
+        const serie=r["# de serie"]||r["Serie"]||r["serie"]||r["Numero de Serie"]||"";
+        const ingreso=excelDate(r["Fecha de ingreso"]||r["Fecha Ingreso"]||"");
+        const instalacion=excelDate(r["Fecha de instalación"]||r["Fecha de instalacion"]||r["Fecha Instalacion"]||"");
+        const sw=r["Version de software"]||r["Version"]||r["version"]||"";
+        const com=r["Comentarios"]||r["comentarios"]||"";
+        return {num:+num||i+1,localizacion:String(loc).trim(),cliente:String(cli).trim(),
+          tipo:String(tipo).trim(),modelo:String(modelo).trim(),serie:String(serie).trim(),
+          fechaIngreso:ingreso,fechaInstalacion:instalacion,versionSw:String(sw).trim(),comentarios:String(com).trim()};
+      }).filter(r=>r.cliente&&r.cliente.toLowerCase()!=="veterinaria"&&r.cliente.toLowerCase()!=="cliente"&&r.cliente!=="undefined");
 
       if(equiposData.length===0){
-        // Show detected columns to help debug
-        const cols=Object.keys(rows[0]||{}).join(", ");
-        alert(`No se encontraron datos válidos.\n\nColumnas detectadas:\n${cols}\n\nAsegúrate de que haya una columna con el nombre del cliente/veterinaria.`);
+        const cols=Object.keys(rows[0]||{}).join("\n");
+        alert(`No se encontraron datos válidos.\n\nColumnas detectadas en tu Excel:\n${cols}\n\nVerifica que la primera fila tenga los encabezados correctos.`);
         setLoading(false);
         return;
       }
+      
+      console.log("Equipos detectados:", equiposData.length, "Ejemplo:", equiposData[0]);
 
       if(equiposData.length===0){
         alert("No se encontraron datos válidos. Verifica que el Excel tenga las columnas correctas.");
@@ -2510,11 +2516,11 @@ function DiprodInventario({mapsKey}){
 
   const estadoColor={
     "instalado":"#1D9E75","bodega":"#185FA5","financiado":"#EF9F27",
-    "contado":"#3C3489","reparacion":"#993C1D","desconocido":"#999"
+    "contado":"#3C3489","demostracion":"#7B6CF6","reparacion":"#993C1D","desconocido":"#999"
   };
   const estadoBg={
     "instalado":"#E1F5EE","bodega":"#E6F1FB","financiado":"#FFF3E0",
-    "contado":"#EEEDFE","reparacion":"#FCEBEB","desconocido":"#f5f5f5"
+    "contado":"#EEEDFE","demostracion":"#F0EFFE","reparacion":"#FCEBEB","desconocido":"#f5f5f5"
   };
 
   const tipos=[...new Set(equipos.map(e=>e.tipo))].filter(Boolean).sort();
@@ -2550,12 +2556,13 @@ function DiprodInventario({mapsKey}){
       </div>
 
       {/* Stats cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
-          {l:"En bodega",v:stats.enBodega||0,c:"#185FA5",bg:"#E6F1FB"},
+          {l:"Bodega",v:stats.enBodega||0,c:"#185FA5",bg:"#E6F1FB"},
           {l:"Instalados",v:(stats.byEstado||{})["instalado"]||0,c:"#1D9E75",bg:"#E1F5EE"},
           {l:"Financiados",v:(stats.byEstado||{})["financiado"]||0,c:"#EF9F27",bg:"#FFF3E0"},
-          {l:"Al contado",v:(stats.byEstado||{})["contado"]||0,c:"#3C3489",bg:"#EEEDFE"},
+          {l:"Contado",v:(stats.byEstado||{})["contado"]||0,c:"#3C3489",bg:"#EEEDFE"},
+          {l:"Demo",v:(stats.byEstado||{})["demostracion"]||0,c:"#7B6CF6",bg:"#F0EFFE"},
         ].map(s=>(
           <div key={s.l} style={{background:s.bg,borderRadius:10,padding:"10px 12px"}}>
             <div style={{fontSize:10,color:s.c,textTransform:"uppercase",letterSpacing:"0.04em"}}>{s.l}</div>
@@ -2569,6 +2576,7 @@ function DiprodInventario({mapsKey}){
         {[
           ["bodega","📦 Bodega",equipos.filter(e=>e.estado==="bodega").length],
           ["financiados","💰 Financiados",equipos.filter(e=>e.estado==="financiado").length],
+          ["demostracion","🎯 Demo",equipos.filter(e=>e.estado==="demostracion").length],
           ["todos","🔬 Todos",equipos.length],
           ["repuestos","🔧 Repuestos",repuestos.length],
           ["accesorios","🎒 Accesorios",accesorios.length]
@@ -2582,7 +2590,7 @@ function DiprodInventario({mapsKey}){
       {loading&&<div style={{textAlign:"center",padding:40,color:"var(--text2)"}}>Cargando...</div>}
 
       {/* EQUIPOS */}
-      {!loading&&(tab==="equipos"||tab==="todos"||tab==="bodega"||tab==="financiados")&&(
+      {!loading&&(tab==="equipos"||tab==="todos"||tab==="bodega"||tab==="financiados"||tab==="demostracion")&&(
         <div>
           {/* Filters */}
           <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -2653,6 +2661,7 @@ function DiprodInventario({mapsKey}){
                         <option value="bodega">En bodega</option>
                         <option value="financiado">Financiado</option>
                         <option value="contado">Al contado</option>
+                        <option value="demostracion">Demostración</option>
                         <option value="reparacion">En reparación</option>
                       </select>
                       {mapsKey&&eq.localizacion&&eq.localizacion!=="Bodega"&&eq.localizacion!=="Desconocida"&&(
