@@ -625,41 +625,119 @@ function Viajes({trips,techs,clients,inventory,onViewTrip}){
 function Inventario({inventory,onAdd}){
   const [show,setShow]=useState(false);
   const [f,setF]=useState({name:"",model:"",serial:"",category:"",stock:1,unitCost:0});
+  const [diprodiBodega,setDiprodiBodega]=useState([]);
+  const [diprodiRep,setDiprodiRep]=useState([]);
+  const [diprodiAcc,setDiprodiAcc]=useState([]);
+  const [activeTab,setActiveTab]=useState("repuestos");
   const set=k=>v=>setF(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    fetch("/api/diprodi/equipos?estado=bodega").then(r=>r.json()).then(setDiprodiBodega).catch(()=>{});
+    fetch("/api/diprodi/repuestos").then(r=>r.json()).then(setDiprodiRep).catch(()=>{});
+    fetch("/api/diprodi/accesorios").then(r=>r.json()).then(setDiprodiAcc).catch(()=>{});
+  },[]);
+
   const add=async()=>{
     if(!f.name||!f.model){alert("Nombre y modelo son requeridos");return;}
     await onAdd({...f,stock:+f.stock,unitCost:+f.unitCost});
     setF({name:"",model:"",serial:"",category:"",stock:1,unitCost:0});
     setShow(false);
   };
+
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:12,color:"var(--text2)"}}>{inventory.length} artículos · <span style={{color:"#A32D2D"}}>{inventory.filter(e=>e.stock===0).length} sin stock</span> · <span style={{color:"#854F0B"}}>{inventory.filter(e=>e.stock===1).length} stock bajo</span></div>
-        <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar equipo</Btn>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {[
+          ["equipos_bodega",`📦 Equipos en bodega (${diprodiBodega.length})`],
+          ["repuestos",`🔧 Repuestos (${diprodiRep.length})`],
+          ["accesorios",`🎒 Accesorios (${diprodiAcc.length})`],
+          ["general",`📋 Inventario general (${inventory.length})`],
+        ].map(([k,l])=>(
+          <button key={k} onClick={()=>setActiveTab(k)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid",borderColor:activeTab===k?"#185FA5":"var(--border)",background:activeTab===k?"#185FA5":"transparent",color:activeTab===k?"white":"var(--text2)",fontSize:12,fontWeight:activeTab===k?700:400,cursor:"pointer"}}>{l}</button>
+        ))}
       </div>
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-          <thead><tr style={{background:"var(--surface)"}}>{["Equipo","Modelo","N° Serie","Categoría","Stock","Costo unit. (L.)","Estado"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:11,color:"var(--text2)",fontWeight:600,borderBottom:"1px solid var(--border)",textTransform:"uppercase",letterSpacing:"0.04em"}}>{h}</th>)}</tr></thead>
-          <tbody>
-            {inventory.map((eq,i)=>{
-              const st=eq.stock===0?"danger":eq.stock<=1?"warning":"success";
-              const lb=eq.stock===0?"Sin stock":eq.stock<=1?"Stock bajo":"Disponible";
-              return(
-                <tr key={eq.id} style={{borderBottom:i<inventory.length-1?"1px solid var(--border)":"none"}} onMouseEnter={e=>e.currentTarget.style.background="var(--surface)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
-                  <td style={{padding:"10px 12px",fontWeight:700,color:"var(--text)"}}>{eq.name}</td>
-                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{eq.model}</td>
-                  <td style={{padding:"10px 12px",color:"var(--text2)",fontFamily:"'DM Mono',monospace",fontSize:11}}>{eq.serial}</td>
-                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{eq.category}</td>
-                  <td style={{padding:"10px 12px",fontWeight:700,color:eq.stock===0?"#A32D2D":eq.stock<=1?"#854F0B":"var(--text)"}}>{eq.stock}</td>
-                  <td style={{padding:"10px 12px",color:"var(--text2)"}}>{fmt(eq.unitCost)}</td>
-                  <td style={{padding:"10px 12px"}}><Badge type={st}>{lb}</Badge></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+
+      {/* Equipos en bodega */}
+      {activeTab==="equipos_bodega"&&(
+        <div>
+          {diprodiBodega.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)",fontSize:14}}>No hay equipos en bodega. Importa el inventario desde la pestaña "Equipos".</div>}
+          {diprodiBodega.map(eq=>(
+            <div key={eq.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"11px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:"var(--text)"}}>{eq.tipo} · {eq.modelo}</div>
+                <div style={{fontSize:11,color:"#185FA5",fontFamily:"monospace",marginTop:2}}>S/N: {eq.serie||"—"}</div>
+                <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{eq.localizacion}</div>
+              </div>
+              <span style={{fontSize:11,background:"#E6F1FB",color:"#185FA5",padding:"3px 8px",borderRadius:4,fontWeight:600}}>📦 Disponible</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Repuestos */}
+      {activeTab==="repuestos"&&(
+        <div>
+          {diprodiRep.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)",fontSize:14}}>No hay repuestos. Importa el inventario desde la pestaña "Equipos".</div>}
+          {diprodiRep.map(rep=>(
+            <div key={rep.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"11px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:"var(--text)"}}>{rep.nombre}</div>
+                <div style={{fontSize:11,color:"#185FA5",fontFamily:"monospace",marginTop:2}}>{rep.num_parte}</div>
+                <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{rep.equipo} · {rep.modelo||"General"}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:20,fontWeight:800,color:rep.cantidad<=2?"#A32D2D":"var(--text)"}}>{rep.cantidad}</div>
+                <div style={{fontSize:10,color:"var(--text2)"}}>unidades</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Accesorios */}
+      {activeTab==="accesorios"&&(
+        <div>
+          {diprodiAcc.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)",fontSize:14}}>No hay accesorios. Importa el inventario desde la pestaña "Equipos".</div>}
+          {diprodiAcc.map(acc=>(
+            <div key={acc.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"11px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:"var(--text)"}}>{acc.tipo}</div>
+                {acc.serie&&<div style={{fontSize:11,color:"#185FA5",fontFamily:"monospace",marginTop:2}}>S/N: {acc.serie}</div>}
+                <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{acc.cliente||"En bodega"} · {acc.localizacion}</div>
+              </div>
+              <span style={{fontSize:11,background:acc.cliente?"#E1F5EE":"#E6F1FB",color:acc.cliente?"#0F6E56":"#185FA5",padding:"3px 8px",borderRadius:4,fontWeight:600}}>{acc.cliente?"Instalado":"Disponible"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Inventario general */}
+      {activeTab==="general"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--text2)"}}>{inventory.length} artículos · <span style={{color:"#A32D2D"}}>{inventory.filter(e=>e.stock===0).length} sin stock</span></div>
+            <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar</Btn>
+          </div>
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead><tr style={{background:"var(--surface)"}}>{["Equipo","Modelo","N° Serie","Stock","Costo (L.)"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:11,color:"var(--text2)",fontWeight:600,borderBottom:"1px solid var(--border)",textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+              <tbody>
+                {inventory.map((eq,i)=>(
+                  <tr key={eq.id} style={{borderBottom:i<inventory.length-1?"1px solid var(--border)":"none"}}>
+                    <td style={{padding:"10px 12px",fontWeight:700,color:"var(--text)"}}>{eq.name}</td>
+                    <td style={{padding:"10px 12px",color:"var(--text2)"}}>{eq.model}</td>
+                    <td style={{padding:"10px 12px",color:"var(--text2)",fontFamily:"monospace",fontSize:11}}>{eq.serial}</td>
+                    <td style={{padding:"10px 12px",fontWeight:700,color:eq.stock===0?"#A32D2D":"var(--text)"}}>{eq.stock}</td>
+                    <td style={{padding:"10px 12px",color:"var(--text2)"}}>{fmt(eq.unitCost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {show&&(
         <Modal title="Agregar equipo" onClose={()=>setShow(false)}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -670,7 +748,7 @@ function Inventario({inventory,onAdd}){
             <Field label="Stock inicial"><Input value={f.stock} onChange={set("stock")} type="number"/></Field>
             <Field label="Costo unitario (L.)" span={2}><Input value={f.unitCost} onChange={set("unitCost")} type="number"/></Field>
           </div>
-          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar equipo</Btn></div>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar</Btn></div>
         </Modal>
       )}
     </div>
@@ -823,17 +901,33 @@ function Clientes({clients,onAdd,trips,inventory,mapsKey}){
       )}
       {sel&&(
         <Modal title={sel.name} onClose={()=>setSel(null)}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            {[["Tipo",sel.type],["Contacto",sel.contact||"—"],["Teléfono",sel.phone||"—"],["Correo",sel.email||"—"],["Ciudad",sel.city||"—"],["Departamento",sel.department||"—"]].map(([l,v])=>(
-              <div key={l} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:11,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em"}}>{l}</div><div style={{fontWeight:500,fontSize:13,color:"var(--text)",marginTop:3}}>{v}</div></div>
-            ))}
-          </div>
-          <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Historial de entregas e instalaciones</div>
-          {trips.filter(t=>t.clientId===sel.id).map(trip=>{
-            const equips=(trip.equipmentIds||[]).map(id=>inventory.find(e=>e.id===id)).filter(Boolean);
-            return <div key={trip.id} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px",marginBottom:6}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{equips.map(e=>`${e.name} ${e.model}`).join(", ")||"—"}</div><div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{trip.date} · {trip.km} km</div></div><Badge type={trip.status}>{trip.status}</Badge></div></div>;
-          })}
-          {trips.filter(t=>t.clientId===sel.id).length===0&&<div style={{color:"var(--text2)",fontSize:13}}>Sin viajes aún</div>}
+          <ClientEditForm client={sel} mapsKey={mapsKey} onSave={async(data)=>{
+            try{
+              await fetch(`/api/clients/${sel.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+              const updated=await fetch("/api/clients").then(r=>r.json());
+              onAdd&&onAdd(updated);
+              setSel({...sel,...data});
+            }catch(e){alert("Error al guardar");}
+          }} onDelete={async()=>{
+            if(!confirm("¿Eliminar este cliente?")) return;
+            await fetch(`/api/clients/${sel.id}`,{method:"DELETE"});
+            const updated=await fetch("/api/clients").then(r=>r.json());
+            onAdd&&onAdd(updated);
+            setSel(null);
+          }}/>
+          {trips.filter(t=>t.clientId===sel.id).length>0&&(
+            <div style={{marginTop:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Historial de visitas</div>
+              {trips.filter(t=>t.clientId===sel.id).slice(0,5).map(trip=>(
+                <div key={trip.id} style={{background:"var(--surface)",borderRadius:8,padding:"10px 12px",marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between"}}>
+                    <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{trip.date} · {trip.km} km</div>
+                    <Badge type={trip.status}>{trip.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
     </div>
