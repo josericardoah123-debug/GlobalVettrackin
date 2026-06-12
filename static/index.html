@@ -2460,6 +2460,7 @@ function ExcelMapperModal({mapper,onConfirm,onClose}){
 
 function DiprodInventario({mapsKey}){
   const [tab,setTab]=useState("equipos");
+  const [excelMapper,setExcelMapper]=useState(null);
   const [equipos,setEquipos]=useState([]);
   const [repuestos,setRepuestos]=useState([]);
   const [accesorios,setAccesorios]=useState([]);
@@ -2651,7 +2652,7 @@ function DiprodInventario({mapsKey}){
       </div>
 
       {/* Excel Mapper Modal */}
-      {excelMapper&&<ExcelMapperModal mapper={excelMapper} onConfirm={confirmExcelImport} onClose={()=>setExcelMapper(null)}/>}
+      {excelMapper&&<ExcelMapperModal mapper={excelMapper} onConfirm={async(mapping,rows)=>{await confirmExcelImport(mapping,rows);}} onClose={()=>setExcelMapper(null)}/>}
 
       {/* Stats cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
