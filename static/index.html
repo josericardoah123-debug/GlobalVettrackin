@@ -39,6 +39,7 @@ const API={
   get(p){return this.req("GET",p)},
   post(p,b){return this.req("POST",p,b)},
   patch(p,b){return this.req("PATCH",p,b)},
+  delete(p){return this.req("DELETE",p)},
 };
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -935,22 +936,36 @@ function Clientes({clients,onAdd,trips,inventory,mapsKey}){
 }
 
 // ─── TECNICOS ────────────────────────────────────────────────────────────────
-function Tecnicos({techs,onAdd,trips}){
+function Tecnicos({techs,onAdd,onUpdate,onDelete,trips}){
   const [show,setShow]=useState(false);
+  const [editTech,setEditTech]=useState(null);
   const [f,setF]=useState({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician",rendimiento:12,tipoCombustible:"gasolina"});
   const colors=["purple","teal","amber","blue","coral","green"];
   const set=k=>v=>setF(p=>({...p,[k]:v}));
+
+  const openEdit=(tech)=>{
+    setEditTech(tech);
+    setF({name:tech.name,phone:tech.phone||"",email:tech.email||"",password:"",color:tech.color||"purple",role:tech.role||"technician",rendimiento:tech.rendimiento||12,tipoCombustible:tech.tipoCombustible||"gasolina"});
+    setShow(true);
+  };
+
   const add=async()=>{
     if(!f.name||!f.email){alert("Nombre y correo son requeridos");return;}
-    await onAdd(f);
+    if(editTech){
+      await onUpdate(editTech.id,f);
+    } else {
+      await onAdd(f);
+    }
     setF({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician",rendimiento:12,tipoCombustible:"gasolina"});
+    setEditTech(null);
     setShow(false);
   };
+
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:12,color:"var(--text2)"}}>{techs.length} usuarios · ilimitados</div>
-        <Btn variant="primary" onClick={()=>setShow(true)}>+ Agregar técnico</Btn>
+        <div style={{fontSize:12,color:"var(--text2)"}}>{techs.length} usuarios</div>
+        <Btn variant="primary" onClick={()=>{setEditTech(null);setF({name:"",phone:"",email:"",password:"tech123",color:"purple",role:"technician",rendimiento:12,tipoCombustible:"gasolina"});setShow(true);}}>+ Agregar</Btn>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12}}>
         {techs.map(tech=>{
@@ -967,25 +982,32 @@ function Tecnicos({techs,onAdd,trips}){
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
                   <Badge type={tech.status==="on_route"?"on_route":"available"}>{tech.status==="on_route"?"En ruta":"Disponible"}</Badge>
-                  <span style={{fontSize:10,background:"var(--surface)",color:"var(--text2)",padding:"2px 7px",borderRadius:10}}>{tech.role==="admin"?"Admin":"Técnico"}</span>
+                  <span style={{fontSize:10,background:"var(--surface)",color:"var(--text2)",padding:"2px 7px",borderRadius:10}}>{tech.role==="admin"?"Admin":tech.role==="ventas"?"Ventas":"Técnico"}</span>
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,borderTop:"1px solid var(--border)",paddingTop:12}}>
-                {[["Viajes",tTrips.length],["Km",tTrips.reduce((s,t)=>s+t.km,0)],["Pendiente",`L.${fmt(tTrips.filter(t=>t.status==="pendiente").reduce((s,t)=>s+t.reimbursement,0))}`]].map(([l,v])=>(
-                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:19,fontWeight:800,color:l==="Pendiente"?"var(--accent)":"var(--text)"}}>{v}</div><div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em",marginTop:2}}>{l}</div></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,borderTop:"1px solid var(--border)",paddingTop:12,marginBottom:10}}>
+                {[["Viajes",tTrips.length],["Km",tTrips.reduce((s,t)=>s+t.km,0).toFixed(0)],["Rend.",`${tech.rendimiento||12}km/L`]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"var(--text)"}}>{v}</div><div style={{fontSize:10,color:"var(--text2)",textTransform:"uppercase",letterSpacing:"0.04em",marginTop:2}}>{l}</div></div>
                 ))}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>openEdit(tech)} style={{flex:1,background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✏️ Editar</button>
+                <button onClick={async()=>{
+                  if(!confirm(`¿Eliminar a ${tech.name}? Esta acción no se puede deshacer.`)) return;
+                  await onDelete(tech.id);
+                }} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑️</button>
               </div>
             </div>
           );
         })}
       </div>
       {show&&(
-        <Modal title="Agregar técnico" onClose={()=>setShow(false)}>
+        <Modal title={editTech?"Editar técnico":"Agregar técnico"} onClose={()=>{setShow(false);setEditTech(null);}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Field label="Nombre completo" span={2}><Input value={f.name} onChange={set("name")} placeholder="Ej: Juan Martínez"/></Field>
             <Field label="Correo electrónico"><Input value={f.email} onChange={set("email")} placeholder="correo@empresa.hn" type="email"/></Field>
             <Field label="Teléfono"><Input value={f.phone} onChange={set("phone")} placeholder="+504 9xxx-xxxx"/></Field>
-            <Field label="Contraseña inicial"><Input value={f.password} onChange={set("password")} type="password"/></Field>
+            {!editTech&&<Field label="Contraseña inicial"><Input value={f.password} onChange={set("password")} type="password"/></Field>}
             <Field label="Rol"><Select value={f.role} onChange={set("role")}><option value="technician">Técnico</option><option value="ventas">Ventas</option><option value="admin">Administrador</option></Select></Field>
             <Field label="Color de avatar" span={2}>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
@@ -995,7 +1017,10 @@ function Tecnicos({techs,onAdd,trips}){
             <Field label="Tipo de combustible"><Select value={f.tipoCombustible||"gasolina"} onChange={set("tipoCombustible")}><option value="gasolina">Gasolina</option><option value="diesel">Diesel</option></Select></Field>
             <Field label="Rendimiento (km/litro)"><Input value={f.rendimiento||12} onChange={set("rendimiento")} type="number" placeholder="Ej: 12"/></Field>
           </div>
-          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Cancelar</Btn><Btn variant="primary" onClick={add}>Agregar técnico</Btn></div>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>{setShow(false);setEditTech(null);}}>Cancelar</Btn>
+            <Btn variant="primary" onClick={add}>{editTech?"Guardar cambios":"Agregar"}</Btn>
+          </div>
         </Modal>
       )}
     </div>
@@ -3347,6 +3372,8 @@ function App(){
   const saveCompany=async v=>{await API.post("/api/settings",{company_name:v});setCompanyName(v);showToast("Nombre guardado ✓");};
   const saveFuelPrices=async(gas,diesel)=>{await API.post("/api/settings",{fuel_gas_price:gas,fuel_diesel_price:diesel});setFuelGasPrice(gas);setFuelDieselPrice(diesel);showToast("Precios de combustible guardados ✓");};
   const addTech=async d=>{const t=await API.post("/api/users",d);setTechs(p=>[...p,t]);showToast("Técnico agregado ✓");};
+  const updateTech=async(id,d)=>{const t=await API.patch(`/api/users/${id}`,d);setTechs(p=>p.map(x=>x.id===id?t:x));showToast("Técnico actualizado ✓");};
+  const deleteTech=async(id)=>{await API.delete(`/api/users/${id}`);setTechs(p=>p.filter(x=>x.id!==id));showToast("Técnico eliminado ✓");};
   const addInventory=async d=>{const eq=await API.post("/api/inventory",d);setInventory(p=>[...p,eq]);showToast("Equipo agregado ✓");};
   const addClient=async d=>{const c=await API.post("/api/clients",d);setClients(p=>[...p,c]);showToast("Cliente agregado ✓");};
   const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");return t;};
@@ -3427,7 +3454,7 @@ function App(){
             {page==="viajes"    &&<Viajes trips={isAdmin?trips:trips.filter(t=>t.technicianId===user.id)} techs={techs} clients={clients} inventory={inventory} onViewTrip={setViewTrip} isAdmin={isAdmin}/>}
             {page==="inventario"&&isAdmin&&<Inventario inventory={inventory} onAdd={addInventory}/>}
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
-            {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} trips={trips}/>}
+            {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} onUpdate={updateTech} onDelete={deleteTech} trips={trips}/>}
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
             {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
             {page==="ventas"    &&isAdmin&&<SalesAdmin techs={techs}/>}
