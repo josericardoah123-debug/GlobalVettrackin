@@ -1649,9 +1649,48 @@ function MisCitas({user}){
   useEffect(()=>{
     fetch(`/api/booking/tech/${user.id}`)
       .then(r=>r.json())
-      .then(d=>{setCitas(d);setLoading(false);})
+      .then(d=>{
+        setCitas(d);
+        setLoading(false);
+        // Schedule reminders for upcoming appointments
+        scheduleReminders(d);
+      })
       .catch(()=>setLoading(false));
   },[]);
+
+  const scheduleReminders=(citas)=>{
+    // Request notification permission
+    if("Notification" in window && Notification.permission==="default"){
+      Notification.requestPermission();
+    }
+    const now=new Date();
+    citas.forEach(c=>{
+      if(c.status!=="confirmado") return;
+      const citaDate=new Date(`${c.date}T${c.time}:00`);
+      const ms30=citaDate.getTime()-now.getTime()-(30*60*1000); // 30 min before
+      const ms5=citaDate.getTime()-now.getTime()-(5*60*1000);   // 5 min before
+      if(ms30>0){
+        setTimeout(()=>{
+          if(Notification.permission==="granted"){
+            new Notification("⏰ Cita en 30 minutos",{
+              body:`${c.client_name} — ${c.time} — ${c.tipo_servicio}`,
+              icon:"https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png"
+            });
+          }
+        },ms30);
+      }
+      if(ms5>0){
+        setTimeout(()=>{
+          if(Notification.permission==="granted"){
+            new Notification("🚨 ¡Cita en 5 minutos!",{
+              body:`${c.client_name} — ${c.time} — 📞 ${c.client_phone}`,
+              icon:"https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png"
+            });
+          }
+        },ms5);
+      }
+    });
+  };
 
   const tipoLabel={
     mantenimiento:"🔧 Mantenimiento",reparacion:"🛠️ Reparación",

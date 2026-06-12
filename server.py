@@ -857,10 +857,10 @@ def booking_page(company="DIPRODI"):
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Agendar servicio técnico</title>
+<title>Agendar servicio técnico — DIPRODI</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:Arial,sans-serif;background:#f0f4f8;min-height:100vh;padding:20px;}
+body{font-family:Arial,sans-serif;background:#f0f4f8;min-height:100vh;padding:20px 16px;}
 .container{max-width:480px;margin:0 auto;}
 .header{background:linear-gradient(135deg,#0C447C,#1D9E75);border-radius:16px;padding:24px;text-align:center;color:white;margin-bottom:20px;}
 .logo{height:50px;margin-bottom:12px;}
@@ -870,20 +870,27 @@ h1{font-size:20px;font-weight:700;margin-bottom:4px;}
 .card h2{font-size:15px;font-weight:700;color:#185FA5;margin-bottom:14px;}
 .field{margin-bottom:12px;}
 .field label{display:block;font-size:12px;color:#666;margin-bottom:4px;font-weight:600;}
-.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;color:#333;font-family:inherit;}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;color:#333;font-family:inherit;background:white;}
 .field textarea{resize:vertical;min-height:70px;}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.modal-btn{padding:12px 8px;border-radius:10px;border:2px solid #ddd;background:white;font-size:13px;cursor:pointer;text-align:center;transition:all 0.15s;font-weight:500;}
+.modal-btn:hover{border-color:#185FA5;background:#f0f7ff;}
+.modal-btn.selected{border-color:#185FA5;background:#185FA5;color:white;font-weight:700;}
+.modal-btn.selected-green{border-color:#1D9E75;background:#1D9E75;color:white;font-weight:700;}
 .slot-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .slot-date{font-weight:700;font-size:13px;color:#333;margin:10px 0 6px;border-top:1px solid #eee;padding-top:10px;}
 .slot-date:first-child{border-top:none;margin-top:0;}
-.slot-btn{padding:8px;border-radius:8px;border:1px solid #ddd;background:white;font-size:12px;cursor:pointer;text-align:center;transition:all 0.15s;}
+.slot-btn{padding:10px 8px;border-radius:8px;border:1px solid #ddd;background:white;font-size:12px;cursor:pointer;text-align:center;transition:all 0.15s;}
 .slot-btn:hover:not(:disabled){border-color:#185FA5;background:#E6F1FB;color:#185FA5;}
 .slot-btn.selected{background:#185FA5;color:white;border-color:#185FA5;font-weight:700;}
-.slot-btn:disabled{opacity:0.4;cursor:not-allowed;background:#f5f5f5;}
-.btn-submit{width:100%;background:#1D9E75;color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;}
-.btn-submit:disabled{opacity:0.5;cursor:not-allowed;}
+.slot-btn:disabled{opacity:0.4;cursor:not-allowed;background:#f5f5f5;color:#999;}
+.btn-submit{width:100%;background:#1D9E75;color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;transition:opacity 0.2s;}
+.btn-submit:disabled{opacity:0.4;cursor:not-allowed;}
 .success{background:#E1F5EE;border:1px solid #5DCAA5;border-radius:12px;padding:24px;text-align:center;display:none;}
 .success h2{color:#0F6E56;font-size:18px;margin-bottom:8px;}
-.success p{color:#085041;font-size:14px;}
+.success p{color:#085041;font-size:14px;line-height:1.6;}
+.cancel-link{display:block;margin-top:12px;padding:10px;background:#FCEBEB;border-radius:8px;color:#C0392B;font-size:12px;text-decoration:none;border:1px solid #F5C6CB;}
+.info-box{background:#E6F1FB;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#185FA5;border:1px solid #B8D4EF;}
 </style>
 </head>
 <body>
@@ -891,76 +898,108 @@ h1{font-size:20px;font-weight:700;margin-bottom:4px;}
   <div class="header">
     <img src="https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png" class="logo" alt="DIPRODI" onerror="this.style.display='none'"/>
     <h1>Agendar servicio técnico</h1>
-    <div class="subtitle">Selecciona fecha, hora y completa tus datos</div>
+    <div class="subtitle">DIPRODI Honduras — Equipos médico-veterinarios</div>
   </div>
 
-  <div class="card" id="formCard">
+  <!-- STEP 1: Service type -->
+  <div class="card" id="card1">
     <h2>📋 Tipo de servicio</h2>
-    <div class="field">
-      <label>¿Qué necesitas?</label>
-      <select id="tipoServicio">
-        <option value="mantenimiento">🔧 Mantenimiento preventivo</option>
-        <option value="reparacion">🛠️ Reparación / Emergencia</option>
-        <option value="instalacion">⚙️ Instalación de equipo</option>
-        <option value="capacitacion">📚 Capacitación</option>
-        <option value="otro">📋 Otro</option>
-      </select>
+    <div class="modal-grid">
+      <button class="modal-btn" onclick="selectTipo('mantenimiento',this)">🔧<br/>Mantenimiento<br/>preventivo</button>
+      <button class="modal-btn" onclick="selectTipo('reparacion',this)">🛠️<br/>Reparación /<br/>Emergencia</button>
+      <button class="modal-btn" onclick="selectTipo('instalacion',this)">⚙️<br/>Instalación<br/>de equipo</button>
+      <button class="modal-btn" onclick="selectTipo('capacitacion',this)">📚<br/>Capacitación</button>
+      <button class="modal-btn" onclick="selectTipo('videollamada',this)">📹<br/>Consulta por<br/>WhatsApp/Video</button>
+      <button class="modal-btn" onclick="selectTipo('otro',this)">📋<br/>Otro</button>
     </div>
+    <div class="field">
+      <label>Modalidad</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+        <button class="modal-btn selected-green" id="btnPresencial" onclick="selectModalidad('presencial')">🏥 Visita presencial</button>
+        <button class="modal-btn" id="btnVideo" onclick="selectModalidad('videollamada')">📱 WhatsApp / Video</button>
+      </div>
+    </div>
+    <div id="videoInfo" class="info-box" style="display:none;">📱 Un técnico te contactará por WhatsApp para coordinar la videollamada en el horario seleccionado.</div>
     <div class="field">
       <label>Equipo (opcional)</label>
-      <input type="text" id="equipo" placeholder="Ej: Hematólogo BC-20 Vet"/>
+      <input type="text" id="equipo" placeholder="Ej: Analizador BC-20 Vet, Ultrasonido Z-60..."/>
     </div>
   </div>
 
+  <!-- STEP 2: Date/time -->
   <div class="card">
     <h2>📅 Selecciona fecha y hora</h2>
-    <div id="slots"><div style="text-align:center;padding:20px;color:#999;">Cargando horarios disponibles...</div></div>
+    <div id="slots"><div style="text-align:center;padding:20px;color:#999;font-size:13px;">Cargando horarios disponibles...</div></div>
   </div>
 
+  <!-- STEP 3: Client data -->
   <div class="card">
     <h2>👤 Tus datos</h2>
     <div class="field"><label>Nombre completo *</label><input type="text" id="clientName" placeholder="Ej: Dr. Juan Pérez"/></div>
-    <div class="field"><label>Teléfono *</label><input type="tel" id="clientPhone" placeholder="+504 9xxx-xxxx"/></div>
-    <div class="field"><label>Correo electrónico</label><input type="email" id="clientEmail" placeholder="correo@veterinaria.hn"/></div>
-    <div class="field"><label>Notas adicionales</label><textarea id="notas" placeholder="Describe el problema o lo que necesitas..."></textarea></div>
+    <div class="field"><label>Teléfono / WhatsApp *</label><input type="tel" id="clientPhone" placeholder="+504 9xxx-xxxx"/></div>
+    <div class="field"><label>Correo electrónico (opcional)</label><input type="email" id="clientEmail" placeholder="correo@veterinaria.hn"/></div>
+    <div class="field"><label>Nombre de la veterinaria / clínica</label><input type="text" id="clientClinica" placeholder="Ej: Veterinaria San José"/></div>
+    <div class="field"><label>Notas adicionales</label><textarea id="notas" placeholder="Describe el problema, síntoma del equipo o lo que necesitas..."></textarea></div>
     <button class="btn-submit" id="submitBtn" onclick="submitBooking()" disabled>📅 Confirmar cita</button>
+    <div style="font-size:11px;color:#999;margin-top:8px;text-align:center;">Al enviar, recibirás un número de cita para poder cancelarla si es necesario.</div>
   </div>
 
+  <!-- SUCCESS -->
   <div class="success" id="successCard">
     <div style="font-size:48px;margin-bottom:12px;">✅</div>
     <h2>¡Cita agendada!</h2>
-    <p id="successMsg">Tu solicitud ha sido enviada. Un técnico se pondrá en contacto contigo para confirmar.</p>
-    <div style="margin-top:16px;font-size:12px;color:#085041;">DIPRODI · Tegucigalpa, Honduras · Telefax: 2230-7121</div>
+    <p id="successMsg"></p>
+    <div id="cancelSection" style="margin-top:12px;"></div>
+    <div style="margin-top:16px;font-size:11px;color:#085041;">DIPRODI · Residencial Plaza, Casa 1, Bloque 32, Tegucigalpa · Tel: 2230-7121</div>
   </div>
 </div>
 
 <script>
 let selectedSlot = null;
+let selectedTipoVal = '';
+let selectedModalidad = 'presencial';
 const days = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
+function selectTipo(tipo, btn){
+  document.querySelectorAll('#card1 .modal-btn').forEach(b=>{
+    if(b.id!=='btnPresencial'&&b.id!=='btnVideo') b.classList.remove('selected');
+  });
+  btn.classList.add('selected');
+  selectedTipoVal = tipo;
+  // Auto-select videollamada modalidad if tipo is videollamada
+  if(tipo==='videollamada') selectModalidad('videollamada');
+}
+
+function selectModalidad(mod){
+  selectedModalidad = mod;
+  document.getElementById('btnPresencial').className = 'modal-btn' + (mod==='presencial'?' selected-green':'');
+  document.getElementById('btnVideo').className = 'modal-btn' + (mod==='videollamada'?' selected':'');
+  document.getElementById('videoInfo').style.display = mod==='videollamada'?'block':'none';
+}
+
 async function loadSlots(){
-  const res = await fetch('/api/booking/slots');
-  const slots = await res.json();
-  
-  // Group by date
-  const byDate = {};
-  slots.forEach(s => { if(!byDate[s.date]) byDate[s.date]=[]; byDate[s.date].push(s); });
-  
-  let html = '';
-  for(const date in byDate){
-    const d = new Date(date+'T12:00:00');
-    html += `<div class="slot-date">${days[d.getDay()]} ${d.getDate()} de ${months[d.getMonth()]}</div>`;
-    html += '<div class="slot-grid">';
-    byDate[date].forEach(s => {
-      const id = `slot-${s.date}-${s.time}`;
-      html += `<button class="slot-btn" id="${id}" ${!s.available?'disabled':''} onclick="selectSlot('${s.date}','${s.time}','${id}')">
-        ${s.time} ${!s.available?'(ocupado)':''}
-      </button>`;
-    });
-    html += '</div>';
+  try{
+    const res = await fetch('/api/booking/slots');
+    const slots = await res.json();
+    const byDate = {};
+    slots.forEach(s => { if(!byDate[s.date]) byDate[s.date]=[]; byDate[s.date].push(s); });
+    let html = '';
+    for(const date in byDate){
+      const d = new Date(date+'T12:00:00');
+      html += `<div class="slot-date">${days[d.getDay()]} ${d.getDate()} de ${months[d.getMonth()]}</div><div class="slot-grid">`;
+      byDate[date].forEach(s => {
+        const id = `slot-${s.date}-${s.time.replace(':','')}`;
+        html += `<button class="slot-btn" id="${id}" ${!s.available?'disabled title="Ocupado"':''} onclick="selectSlot('${s.date}','${s.time}','${id}')">
+          ${s.time}${!s.available?' ✗':''}
+        </button>`;
+      });
+      html += '</div>';
+    }
+    document.getElementById('slots').innerHTML = html || '<p style="color:#999;text-align:center;padding:20px">No hay horarios disponibles esta semana. Contáctanos directamente: 2230-7121</p>';
+  }catch(e){
+    document.getElementById('slots').innerHTML = '<p style="color:#e74c3c;text-align:center;padding:20px">Error al cargar horarios. Recarga la página.</p>';
   }
-  document.getElementById('slots').innerHTML = html || '<p style="color:#999;text-align:center">No hay horarios disponibles esta semana.</p>';
 }
 
 function selectSlot(date, time, id){
@@ -973,39 +1012,55 @@ function selectSlot(date, time, id){
 async function submitBooking(){
   const name = document.getElementById('clientName').value.trim();
   const phone = document.getElementById('clientPhone').value.trim();
-  if(!name||!phone){alert('Por favor completa tu nombre y teléfono.');return;}
+  if(!name){alert('Por favor ingresa tu nombre completo.');return;}
+  if(!phone){alert('Por favor ingresa tu teléfono/WhatsApp.');return;}
   if(!selectedSlot){alert('Por favor selecciona una fecha y hora.');return;}
-  
-  document.getElementById('submitBtn').disabled = true;
-  document.getElementById('submitBtn').textContent = 'Enviando...';
-  
-  const res = await fetch('/api/booking', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      clientName: name,
-      clientPhone: phone,
-      clientEmail: document.getElementById('clientEmail').value,
-      equipo: document.getElementById('equipo').value,
-      tipoServicio: document.getElementById('tipoServicio').value,
-      date: selectedSlot.date,
-      time: selectedSlot.time,
-      notas: document.getElementById('notas').value
-    })
-  });
-  
-  const data = await res.json();
-  if(data.ok){
-    document.getElementById('formCard').style.display='none';
-    document.querySelectorAll('.card')[1].style.display='none';
-    document.querySelectorAll('.card')[2].style.display='none';
-    document.getElementById('successCard').style.display='block';
-    document.getElementById('successMsg').textContent = 
-      `Cita solicitada para el ${selectedSlot.date} a las ${selectedSlot.time}. Un técnico te contactará para confirmar.`;
-  } else {
-    alert(data.error || 'Error al agendar. Intenta de nuevo.');
-    document.getElementById('submitBtn').disabled = false;
-    document.getElementById('submitBtn').textContent = '📅 Confirmar cita';
+  if(!selectedTipoVal){alert('Por favor selecciona el tipo de servicio.');return;}
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  try{
+    const res = await fetch('/api/booking', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        clientName: name,
+        clientPhone: phone,
+        clientEmail: document.getElementById('clientEmail').value.trim(),
+        equipo: document.getElementById('equipo').value.trim(),
+        tipoServicio: selectedTipoVal,
+        modalidad: selectedModalidad,
+        date: selectedSlot.date,
+        time: selectedSlot.time,
+        notas: document.getElementById('notas').value.trim() + (document.getElementById('clientClinica').value?' | Clínica: '+document.getElementById('clientClinica').value:'')
+      })
+    });
+    const data = await res.json();
+    if(data.ok){
+      document.querySelectorAll('.card').forEach(c=>c.style.display='none');
+      const sc = document.getElementById('successCard');
+      sc.style.display='block';
+      document.getElementById('successMsg').innerHTML = `
+        Tu cita ha sido solicitada para el <strong>${selectedSlot.date}</strong> a las <strong>${selectedSlot.time}</strong>.<br/><br/>
+        ${selectedModalidad==='videollamada'?'📱 Un técnico te contactará por <strong>WhatsApp</strong> para coordinar la videollamada.':'🏥 Un técnico irá a visitarte en el horario indicado.'}<br/><br/>
+        Te contactaremos al <strong>${phone}</strong> para confirmar tu cita.<br/>
+        <strong>N° de cita: ${data.id}</strong>
+      `;
+      // Cancel link
+      document.getElementById('cancelSection').innerHTML = `
+        <a href="/cancelar/${data.id}" class="cancel-link">¿Necesitas cancelar? Haz clic aquí → Cancelar mi cita</a>
+      `;
+    } else {
+      alert(data.error || 'Error al agendar. Intenta de nuevo.');
+      btn.disabled = false;
+      btn.textContent = '📅 Confirmar cita';
+    }
+  }catch(e){
+    alert('Error de conexión. Intenta de nuevo.');
+    btn.disabled = false;
+    btn.textContent = '📅 Confirmar cita';
   }
 }
 
@@ -1017,6 +1072,38 @@ loadSlots();
     return Response(html, mimetype='text/html')
 
 # ─── STATIC ───────────────────────────────────────────────────────────────────
+@app.route("/cancelar/<bid>")
+def cancel_page(bid):
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM bookings WHERE id=?", (bid,))
+    b = r2d(cur.fetchone())
+    conn.close()
+    if not b:
+        return "<h2>Cita no encontrada</h2>", 404
+    if b["status"] in ("cancelado","completado"):
+        return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Cita</title>
+        <style>body{{font-family:Arial;background:#f0f4f8;padding:30px;text-align:center;}}
+        .card{{background:white;border-radius:12px;padding:24px;max-width:400px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.1);}}</style></head>
+        <body><div class="card"><div style="font-size:40px;margin-bottom:12px;">{'✅' if b['status']=='completado' else '❌'}</div>
+        <h2 style="color:{'#0F6E56' if b['status']=='completado' else '#C0392B'};">Esta cita ya fue {'completada' if b['status']=='completado' else 'cancelada'}</h2>
+        <p style="color:#666;margin-top:8px;">Para agendar una nueva cita: <a href="/agendar">haz clic aquí</a></p></div></body></html>""", 200
+    # Cancel the booking
+    ex(conn, "UPDATE bookings SET status='cancelado' WHERE id=?", (bid,))
+    conn = get_db()
+    ex(conn, "UPDATE bookings SET status='cancelado' WHERE id=?", (bid,))
+    conn.commit()
+    conn.close()
+    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Cita cancelada</title>
+    <style>body{{font-family:Arial;background:#f0f4f8;padding:30px;text-align:center;}}
+    .card{{background:white;border-radius:12px;padding:24px;max-width:400px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.1);}}</style></head>
+    <body><div class="card">
+    <div style="font-size:48px;margin-bottom:12px;">✅</div>
+    <h2 style="color:#0F6E56;">Cita cancelada exitosamente</h2>
+    <p style="color:#666;margin-top:8px;">Tu cita del <strong>{b['date']}</strong> a las <strong>{b['time']}</strong> ha sido cancelada.</p>
+    <p style="color:#666;margin-top:8px;">Si necesitas reagendar: <a href="/agendar" style="color:#185FA5;">haz clic aquí</a></p>
+    <p style="color:#999;font-size:12px;margin-top:16px;">DIPRODI · Tel: 2230-7121</p>
+    </div></body></html>""", 200
+
 @app.route("/")
 def index(): return send_from_directory("static","index.html")
 
