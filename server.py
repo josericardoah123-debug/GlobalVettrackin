@@ -1112,6 +1112,34 @@ def static_files(path): return send_from_directory("static",path)
 
 init_db()
 
+def migrate_db():
+    """Add missing columns to existing PostgreSQL tables"""
+    if not is_pg(): return
+    conn = get_db()
+    cur = conn.cursor()
+    migrations = [
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_id TEXT",
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS report_num TEXT",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS rtn TEXT DEFAULT ''",
+        "ALTER TABLE diprodi_equipos ADD COLUMN IF NOT EXISTS cuota_mensual REAL",
+        "ALTER TABLE diprodi_equipos ADD COLUMN IF NOT EXISTS prima REAL",
+        "ALTER TABLE diprodi_equipos ADD COLUMN IF NOT EXISTS interes REAL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS modalidad TEXT DEFAULT 'presencial'",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS accepted_at TEXT DEFAULT ''",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS completed_at TEXT DEFAULT ''",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS video_link TEXT DEFAULT ''",
+    ]
+    for sql in migrations:
+        try:
+            cur.execute(sql)
+            print(f"✓ {sql[:60]}", flush=True)
+        except Exception as e:
+            print(f"skip: {e}", flush=True)
+    conn.commit()
+    conn.close()
+
+migrate_db()
+
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
     print(f"LabTrack en http://localhost:{port} — {'PostgreSQL' if is_pg() else 'SQLite'}",flush=True)
