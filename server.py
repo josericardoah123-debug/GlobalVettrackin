@@ -1077,19 +1077,17 @@ def cancel_page(bid):
     conn = get_db()
     cur = ex(conn, "SELECT * FROM bookings WHERE id=?", (bid,))
     b = r2d(cur.fetchone())
-    conn.close()
     if not b:
+        conn.close()
         return "<h2>Cita no encontrada</h2>", 404
     if b["status"] in ("cancelado","completado"):
+        conn.close()
         return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Cita</title>
         <style>body{{font-family:Arial;background:#f0f4f8;padding:30px;text-align:center;}}
         .card{{background:white;border-radius:12px;padding:24px;max-width:400px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.1);}}</style></head>
         <body><div class="card"><div style="font-size:40px;margin-bottom:12px;">{'✅' if b['status']=='completado' else '❌'}</div>
         <h2 style="color:{'#0F6E56' if b['status']=='completado' else '#C0392B'};">Esta cita ya fue {'completada' if b['status']=='completado' else 'cancelada'}</h2>
         <p style="color:#666;margin-top:8px;">Para agendar una nueva cita: <a href="/agendar">haz clic aquí</a></p></div></body></html>""", 200
-    # Cancel the booking
-    ex(conn, "UPDATE bookings SET status='cancelado' WHERE id=?", (bid,))
-    conn = get_db()
     ex(conn, "UPDATE bookings SET status='cancelado' WHERE id=?", (bid,))
     conn.commit()
     conn.close()
