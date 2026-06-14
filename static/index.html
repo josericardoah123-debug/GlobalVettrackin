@@ -3251,6 +3251,217 @@ function SalesAdmin({techs}){
 }
 
 
+
+// ─── FACTURACIÓN ─────────────────────────────────────────────────────────────
+function Facturacion({clients,techs,repuestos=[],inventory=[]}){
+  const [invoices,setInvoices]=useState([]);
+  const [showNew,setShowNew]=useState(false);
+  const [loading,setLoading]=useState(true);
+  const [form,setForm]=useState({
+    clientId:"",clientName:"",clientRtn:"",clientAddress:"",
+    items:[{description:"",qty:1,price:0,inventoryId:""}],
+    isvRate:15,paymentMethod:"efectivo",cai:"",notes:""
+  });
+
+  useEffect(()=>{
+    fetch("/api/invoices").then(r=>r.json()).then(d=>{setInvoices(d);setLoading(false);}).catch(()=>setLoading(false));
+  },[]);
+
+  const fmt=n=>`L.${(+n||0).toLocaleString("es-HN",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const subtotal=form.items.reduce((s,i)=>s+(+i.qty||0)*(+i.price||0),0);
+  const isv=subtotal*(+form.isvRate/100);
+  const total=subtotal+isv;
+
+  const addItem=()=>setForm(p=>({...p,items:[...p.items,{description:"",qty:1,price:0,inventoryId:""}]}));
+  const removeItem=idx=>setForm(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
+  const updateItem=(idx,k,v)=>setForm(p=>({...p,items:p.items.map((it,i)=>i===idx?{...it,[k]:v}:it)}));
+
+  const selectClient=(id)=>{
+    const cl=clients.find(c=>c.id===id);
+    setForm(p=>({...p,clientId:id,clientName:cl?.name||"",clientRtn:cl?.rtn||"",clientAddress:`${cl?.address||""} ${cl?.city||""}`.trim()}));
+  };
+
+  const selectInventoryItem=(idx,itemId)=>{
+    const item=[...repuestos,...inventory].find(r=>r.id===itemId);
+    if(item) updateItem(idx,"description",`${item.nombre||item.name} ${item.num_parte||item.model||""}`.trim());
+    updateItem(idx,"inventoryId",itemId);
+  };
+
+  const saveInvoice=async()=>{
+    if(!form.clientName&&!form.clientId){alert("Selecciona o escribe el nombre del cliente.");return;}
+    if(form.items.every(i=>!i.description)){alert("Agrega al menos un item a la factura.");return;}
+    const res=await fetch("/api/invoices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
+    const data=await res.json();
+    if(data.invoiceNum){
+      const updated=await fetch("/api/invoices").then(r=>r.json());
+      setInvoices(updated);
+      setShowNew(false);
+      setForm({clientId:"",clientName:"",clientRtn:"",clientAddress:"",items:[{description:"",qty:1,price:0,inventoryId:""}],isvRate:15,paymentMethod:"efectivo",cai:"",notes:""});
+      alert(`✅ Factura ${data.invoiceNum} creada · Total: ${fmt(data.total)}`);
+    }
+  };
+
+  const totalPendiente=invoices.filter(i=>i.status==="pendiente").reduce((s,i)=>s+(+i.total||0),0);
+  const totalPagado=invoices.filter(i=>i.status==="pagada").reduce((s,i)=>s+(+i.total||0),0);
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:20,color:"var(--text)"}}>🧾 Facturación</div>
+          <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>{invoices.length} facturas</div>
+        </div>
+        <button onClick={()=>setShowNew(true)} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Nueva factura</button>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+        {[["Pendiente",fmt(totalPendiente),"#EF9F27","#FFF3E0"],
+          ["Cobrado",fmt(totalPagado),"#1D9E75","#E1F5EE"],
+          ["Total",fmt(totalPendiente+totalPagado),"#185FA5","#E6F1FB"]
+        ].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:c,textTransform:"uppercase",fontWeight:600}}>{l}</div>
+            <div style={{fontSize:14,fontWeight:800,color:c,marginTop:2,fontFamily:"monospace"}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Invoice list */}
+      {loading&&<div style={{textAlign:"center",padding:30,color:"var(--text2)"}}>Cargando...</div>}
+      {!loading&&invoices.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--text2)"}}>Sin facturas aún</div>}
+      {invoices.map(inv=>(
+        <div key={inv.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#0F6E56",fontFamily:"monospace"}}>{inv.invoice_num}</span>
+              <span style={{fontSize:10,background:inv.status==="pagada"?"#E1F5EE":"#FFF3E0",color:inv.status==="pagada"?"#0F6E56":"#EF9F27",padding:"2px 7px",borderRadius:4,fontWeight:600}}>{inv.status}</span>
+            </div>
+            <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{inv.client_name||"—"}</div>
+            <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{inv.created_at?.slice(0,10)} · {inv.items?.length||0} items · {inv.payment_method}</div>
+          </div>
+          <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+            <div style={{fontSize:15,fontWeight:800,color:"var(--text)",fontFamily:"monospace"}}>L.{(+inv.total||0).toLocaleString("es-HN",{minimumFractionDigits:2})}</div>
+            <div style={{display:"flex",gap:4}}>
+              {inv.status==="pendiente"&&<button onClick={async()=>{await fetch(`/api/invoices/${inv.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"pagada"})});const u=await fetch("/api/invoices").then(r=>r.json());setInvoices(u);}} style={{fontSize:10,background:"#E1F5EE",color:"#0F6E56",border:"none",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>✓ Marcar pagada</button>}
+              <button onClick={()=>window.open(`/api/invoices/${inv.id}/pdf`,"_blank")} style={{fontSize:10,background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>📄 PDF</button>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* New invoice modal */}
+      {showNew&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,overflowY:"auto",padding:"16px 8px"}}>
+          <div style={{maxWidth:560,margin:"0 auto",background:"var(--card)",borderRadius:16,overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#0C447C,#0F6E56)",padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"white"}}>🧾 Nueva factura</div>
+              <button onClick={()=>setShowNew(false)} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:"50%",width:28,height:28,color:"white",cursor:"pointer",fontSize:16}}>×</button>
+            </div>
+            <div style={{padding:16}}>
+              {/* Client */}
+              <div style={{background:"var(--surface)",borderRadius:10,padding:12,marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",marginBottom:8}}>Cliente</div>
+                <select value={form.clientId} onChange={e=>selectClient(e.target.value)} style={{width:"100%",padding:"8px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:13,marginBottom:6}}>
+                  <option value="">Seleccionar cliente...</option>
+                  {clients.map(c=><option key={c.id} value={c.id}>{c.name} {c.rtn?`(RTN: ${c.rtn})`:""}</option>)}
+                </select>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {[["Nombre",form.clientName,v=>setForm(p=>({...p,clientName:v})),"Nombre del cliente"],
+                    ["RTN",form.clientRtn,v=>setForm(p=>({...p,clientRtn:v})),"RTN del cliente"],
+                    ["Dirección",form.clientAddress,v=>setForm(p=>({...p,clientAddress:v})),"Dirección"]
+                  ].map(([l,v,s,ph])=>(
+                    <div key={l} style={{gridColumn:l==="Dirección"?"1/-1":"auto"}}>
+                      <div style={{fontSize:10,color:"var(--text2)",marginBottom:2}}>{l}</div>
+                      <input value={v} onChange={e=>s(e.target.value)} placeholder={ph} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Items */}
+              <div style={{background:"var(--surface)",borderRadius:10,padding:12,marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase"}}>Items / Servicios</div>
+                  <button onClick={addItem} style={{fontSize:11,background:"#185FA5",color:"white",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer"}}>+ Agregar</button>
+                </div>
+                {form.items.map((item,idx)=>(
+                  <div key={idx} style={{background:"var(--card)",borderRadius:8,padding:8,marginBottom:6}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:6,alignItems:"center",marginBottom:4}}>
+                      <input value={item.description} onChange={e=>updateItem(idx,"description",e.target.value)} placeholder="Descripción del servicio o producto" style={{padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+                      <input type="number" value={item.qty} onChange={e=>updateItem(idx,"qty",e.target.value)} placeholder="Cant." style={{width:55,padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+                      <input type="number" value={item.price} onChange={e=>updateItem(idx,"price",e.target.value)} placeholder="Precio" style={{width:90,padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+                      <button onClick={()=>removeItem(idx)} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:6,padding:"6px 8px",cursor:"pointer",fontSize:12}}>🗑️</button>
+                    </div>
+                    {/* Link to inventory */}
+                    <select onChange={e=>selectInventoryItem(idx,e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text2)",fontSize:11}}>
+                      <option value="">📦 Seleccionar del inventario (opcional)...</option>
+                      <optgroup label="Repuestos">
+                        {repuestos.map(r=><option key={r.id} value={r.id}>{r.nombre} — Stock: {r.cantidad}</option>)}
+                      </optgroup>
+                      <optgroup label="Inventario general">
+                        {inventory.map(i=><option key={i.id} value={i.id}>{i.name} {i.model}</option>)}
+                      </optgroup>
+                    </select>
+                    <div style={{fontSize:11,color:"var(--text2)",textAlign:"right",marginTop:3}}>Subtotal: L.{((+item.qty||0)*(+item.price||0)).toLocaleString("es-HN",{minimumFractionDigits:2})}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Totals & config */}
+              <div style={{background:"var(--surface)",borderRadius:10,padding:12,marginBottom:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:10,color:"var(--text2)",marginBottom:3}}>ISV (%)</div>
+                    <select value={form.isvRate} onChange={e=>setForm(p=>({...p,isvRate:+e.target.value}))} style={{width:"100%",padding:"7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}>
+                      <option value={0}>0% — Exento</option>
+                      <option value={15}>15% — Estándar</option>
+                      <option value={18}>18% — Alcohol/Tabaco</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:"var(--text2)",marginBottom:3}}>Método de pago</div>
+                    <select value={form.paymentMethod} onChange={e=>setForm(p=>({...p,paymentMethod:e.target.value}))} style={{width:"100%",padding:"7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}>
+                      <option value="efectivo">💵 Efectivo</option>
+                      <option value="transferencia">🏦 Transferencia</option>
+                      <option value="tarjeta">💳 Tarjeta</option>
+                      <option value="cheque">📝 Cheque</option>
+                    </select>
+                  </div>
+                  <div style={{gridColumn:"1/-1"}}>
+                    <div style={{fontSize:10,color:"var(--text2)",marginBottom:3}}>CAI (opcional — empresas formales)</div>
+                    <input value={form.cai} onChange={e=>setForm(p=>({...p,cai:e.target.value}))} placeholder="Ej: A1B2C3-D4E5F6-G7H8I9-J0K1L2-M3N4O5-P6" style={{width:"100%",padding:"7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:11,fontFamily:"monospace"}}/>
+                  </div>
+                  <div style={{gridColumn:"1/-1"}}>
+                    <div style={{fontSize:10,color:"var(--text2)",marginBottom:3}}>Notas</div>
+                    <textarea value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={2} placeholder="Observaciones adicionales..." style={{width:"100%",padding:"7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12,resize:"vertical",fontFamily:"inherit"}}/>
+                  </div>
+                </div>
+                {/* Total summary */}
+                <div style={{background:"var(--card)",borderRadius:8,padding:10}}>
+                  {[["Subtotal",subtotal],["ISV ("+form.isvRate+"%)",isv]].map(([l,v])=>(
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--text2)",marginBottom:4}}>
+                      <span>{l}</span><span style={{fontFamily:"monospace"}}>{fmt(v)}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:16,fontWeight:800,color:"#0F6E56",borderTop:"1px solid var(--border)",paddingTop:6,marginTop:4}}>
+                    <span>TOTAL</span><span style={{fontFamily:"monospace"}}>{fmt(total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowNew(false)} style={{flex:1,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:10,padding:"11px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={saveInvoice} style={{flex:2,background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"11px",fontSize:14,fontWeight:700,cursor:"pointer"}}>💾 Crear factura</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── AGENDA ADMIN PAGE ───────────────────────────────────────────────────────
 function AgendaAdmin({techs}){
   const [bookings,setBookings]=useState([]);
@@ -3669,6 +3880,7 @@ function App(){
     {id:"clientes",l:"Clientes",i:"🏥"},
     {id:"tecnicos",l:"Empleados",i:"👥"},
     {id:"agenda",l:"Agenda",i:"📅"},
+    {id:"facturacion",l:"Facturas",i:"🧾"},
     {id:"ajustes",l:"Ajustes",i:"⚙️"},
   ];
   const techNav=[
@@ -3732,6 +3944,7 @@ function App(){
             {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
             {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
             {page==="agenda"    &&isAdmin&&<AgendaAdmin techs={techs}/>}
+            {page==="facturacion"&&isAdmin&&<Facturacion clients={clients} techs={techs} repuestos={[]} inventory={inventory}/>}
             {page==="ventas"    &&isAdmin&&<SalesAdmin techs={techs}/>}
             {page==="diprodi_inv"&&isAdmin&&<DiprodInventario mapsKey={mapsKey}/>}
             {page==="reportes"  &&isAdmin&&<AdminReports reports={reports} techs={techs} clients={clients}/>}

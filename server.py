@@ -66,6 +66,8 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS sales_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, monto REAL DEFAULT 0, descripcion TEXT DEFAULT '', cliente TEXT DEFAULT '', fecha TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS odometer_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, km_inicio REAL DEFAULT 0, km_fin REAL DEFAULT 0, factura_monto REAL DEFAULT 0, km_laborales REAL DEFAULT 0, reembolso REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', modalidad TEXT DEFAULT 'presencial', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', accepted_at TEXT DEFAULT '', completed_at TEXT DEFAULT '', video_link TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, invoice_num TEXT NOT NULL, client_id TEXT, client_name TEXT DEFAULT '', client_rtn TEXT DEFAULT '', client_address TEXT DEFAULT '', items TEXT DEFAULT '[]', subtotal REAL DEFAULT 0, isv_rate REAL DEFAULT 15, isv REAL DEFAULT 0, total REAL DEFAULT 0, status TEXT DEFAULT 'pendiente', payment_method TEXT DEFAULT 'efectivo', cai TEXT DEFAULT '', notes TEXT DEFAULT '', technician_id TEXT DEFAULT '', trip_id TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS invoice_sequence (id TEXT PRIMARY KEY, year INTEGER, month INTEGER, last_num INTEGER DEFAULT 0)",
         ]
         for t in tbls:
             try: cur.execute(t)
@@ -90,6 +92,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sales_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,monto REAL DEFAULT 0,descripcion TEXT DEFAULT '',cliente TEXT DEFAULT '',fecha TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS odometer_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,km_inicio REAL DEFAULT 0,km_fin REAL DEFAULT 0,factura_monto REAL DEFAULT 0,km_laborales REAL DEFAULT 0,reembolso REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',modalidad TEXT DEFAULT 'presencial',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',accepted_at TEXT DEFAULT '',completed_at TEXT DEFAULT '',video_link TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY,invoice_num TEXT NOT NULL,client_id TEXT,client_name TEXT DEFAULT '',client_rtn TEXT DEFAULT '',client_address TEXT DEFAULT '',items TEXT DEFAULT '[]',subtotal REAL DEFAULT 0,isv_rate REAL DEFAULT 15,isv REAL DEFAULT 0,total REAL DEFAULT 0,status TEXT DEFAULT 'pendiente',payment_method TEXT DEFAULT 'efectivo',cai TEXT DEFAULT '',notes TEXT DEFAULT '',technician_id TEXT DEFAULT '',trip_id TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS invoice_sequence(id TEXT PRIMARY KEY,year INTEGER,month INTEGER,last_num INTEGER DEFAULT 0);
         """)
         for k,v in [('rate_per_km','5.0'),('maps_api_key',''),('company_name','DIPRODI'),('fuel_gas_price','95.0'),('fuel_diesel_price','85.0')]:
             conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
@@ -766,6 +770,154 @@ def export_inventory():
     from flask import Response
     return Response(output.getvalue(), mimetype="text/csv",
         headers={"Content-Disposition":"attachment;filename=inventario_diprodi.csv"})
+
+# ─── INVOICES ────────────────────────────────────────────────────────────────
+@app.route("/api/invoices")
+def get_invoices():
+    client_id = request.args.get("clientId")
+    conn = get_db()
+    if client_id:
+        cur = ex(conn, "SELECT * FROM invoices WHERE client_id=? ORDER BY created_at DESC", (client_id,))
+    else:
+        cur = ex(conn, "SELECT * FROM invoices ORDER BY created_at DESC")
+    rows = rlist(cur.fetchall())
+    conn.close()
+    result = []
+    for r in rows:
+        r["items"] = __import__("json").loads(r.get("items","[]"))
+        result.append(r)
+    return jsonify(result)
+
+@app.route("/api/invoices", methods=["POST"])
+def create_invoice():
+    import json as _json
+    d = request.get_json()
+    iid = "inv_" + uuid.uuid4().hex[:10]
+    now = datetime.now()
+    year, month = now.year, now.month
+    conn = get_db()
+    # Generate sequential invoice number
+    cur = ex(conn, "SELECT last_num FROM invoice_sequence WHERE year=? AND month=?", (year, month))
+    seq_row = r2d(cur.fetchone())
+    if seq_row:
+        new_num = int(seq_row["last_num"]) + 1
+        ex(conn, "UPDATE invoice_sequence SET last_num=? WHERE year=? AND month=?", (new_num, year, month))
+    else:
+        new_num = 1
+        ex(conn, "INSERT INTO invoice_sequence(id,year,month,last_num) VALUES(?,?,?,?)",
+           (f"seq_{year}_{month}", year, month, 1))
+    invoice_num = f"FAC-{year}{str(month).zfill(2)}-{str(new_num).zfill(4)}"
+    items = d.get("items", [])
+    subtotal = sum(float(i.get("qty",1)) * float(i.get("price",0)) for i in items)
+    isv_rate = float(d.get("isvRate", 15))
+    isv = round(subtotal * (isv_rate/100), 2)
+    total = round(subtotal + isv, 2)
+    # Get client info if clientId provided
+    client_name = d.get("clientName","")
+    client_rtn = d.get("clientRtn","")
+    client_address = d.get("clientAddress","")
+    if d.get("clientId"):
+        cur2 = ex(conn, "SELECT name,rtn,address,city FROM clients WHERE id=?", (d["clientId"],))
+        cl = r2d(cur2.fetchone())
+        if cl:
+            client_name = client_name or cl.get("name","")
+            client_rtn = client_rtn or cl.get("rtn","")
+            client_address = client_address or f"{cl.get('address','')} {cl.get('city','')}".strip()
+    ex(conn, """INSERT INTO invoices(id,invoice_num,client_id,client_name,client_rtn,client_address,items,subtotal,isv_rate,isv,total,status,payment_method,cai,notes,technician_id,trip_id)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+       (iid, invoice_num, d.get("clientId",""), client_name, client_rtn, client_address,
+        _json.dumps(items), subtotal, isv_rate, isv, total,
+        d.get("status","pendiente"), d.get("paymentMethod","efectivo"),
+        d.get("cai",""), d.get("notes",""), d.get("technicianId",""), d.get("tripId","")))
+    # Update inventory stock for product items
+    for item in items:
+        if item.get("inventoryId") and item.get("qty"):
+            ex(conn, "UPDATE diprodi_repuestos SET cantidad=cantidad-? WHERE id=? AND cantidad>=?",
+               (int(item["qty"]), item["inventoryId"], int(item["qty"])))
+    conn.commit()
+    conn.close()
+    return jsonify({"id":iid,"invoiceNum":invoice_num,"total":total})
+
+@app.route("/api/invoices/<iid>", methods=["PATCH"])
+def update_invoice(iid):
+    d = request.get_json()
+    conn = get_db()
+    fields, vals = [], []
+    for k,col in [("status","status"),("paymentMethod","payment_method"),("notes","notes")]:
+        if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    if fields:
+        vals.append(iid)
+        ex(conn, f"UPDATE invoices SET {','.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    conn.close()
+    return jsonify({"ok":True})
+
+@app.route("/api/invoices/<iid>/pdf")
+def invoice_pdf(iid):
+    import json as _json
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM invoices WHERE id=?", (iid,))
+    inv = r2d(cur.fetchone())
+    # Get company settings
+    cur2 = ex(conn, "SELECT key,value FROM settings WHERE key IN ('company_name','company_address','company_phone','company_rtn','company_logo')")
+    settings = {r["key"]:r["value"] for r in rlist(cur2.fetchall())}
+    conn.close()
+    if not inv: return "Factura no encontrada", 404
+    items = _json.loads(inv.get("items","[]"))
+    company = settings.get("company_name","DIPRODI")
+    logo = settings.get("company_logo","https://diprodi.net/public/uploads/1723666225_c80478b27ad98bae76d7.png")
+    address = settings.get("company_address","Residencial Plaza, Casa 1, Bloque 32, Tegucigalpa")
+    phone = settings.get("company_phone","2230-7121")
+    rtn = settings.get("company_rtn","")
+    fmt = lambda n: f"L.{float(n):,.2f}"
+    items_html = "".join([f"""<tr><td style='padding:8px 10px;border-bottom:1px solid #f0f0f0;'>{i.get('description','')}</td>
+        <td style='padding:8px 10px;border-bottom:1px solid #f0f0f0;text-align:center;'>{i.get('qty',1)}</td>
+        <td style='padding:8px 10px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace;'>L.{float(i.get('price',0)):,.2f}</td>
+        <td style='padding:8px 10px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace;font-weight:600;'>L.{float(i.get('qty',1))*float(i.get('price',0)):,.2f}</td></tr>""" for i in items])
+    html = f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+<title>Factura {inv['invoice_num']}</title>
+<style>*{{box-sizing:border-box;margin:0;padding:0;}}body{{font-family:Arial,sans-serif;padding:30px;font-size:13px;color:#222;}}
+.header{{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0F6E56;padding-bottom:16px;margin-bottom:20px;}}
+.logo{{height:55px;}}h1{{color:#0F6E56;font-size:22px;margin-bottom:4px;}}.inv-num{{background:#E1F5EE;color:#0F6E56;padding:8px 16px;border-radius:20px;font-weight:800;font-size:15px;font-family:monospace;}}
+.grid-2{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}}.box{{background:#f8f8f8;border-radius:8px;padding:14px;}}.box h3{{font-size:11px;text-transform:uppercase;color:#888;letter-spacing:0.5px;margin-bottom:8px;}}
+.box p{{font-size:13px;color:#333;line-height:1.7;}}table{{width:100%;border-collapse:collapse;margin-bottom:16px;}}
+thead{{background:#0F6E56;color:white;}}thead th{{padding:10px;text-align:left;font-size:12px;}}
+.totals{{margin-left:auto;width:260px;}}.total-row{{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#555;border-bottom:1px solid #eee;}}
+.total-final{{display:flex;justify-content:space-between;padding:10px 0;font-size:16px;font-weight:800;color:#0F6E56;border-top:2px solid #0F6E56;margin-top:4px;}}
+.status-badge{{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:{'#E1F5EE' if inv['status']=='pagada' else '#FFF3E0'};color:{'#0F6E56' if inv['status']=='pagada' else '#EF9F27'};}}
+.footer{{text-align:center;font-size:11px;color:#aaa;border-top:1px solid #eee;padding-top:12px;margin-top:20px;}}
+.btn{{background:#0F6E56;color:white;border:none;padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;}}
+@media print{{.np{{display:none;}};@page{{margin:15mm;}}}}</style></head>
+<body>
+<div class="np" style="text-align:right;margin-bottom:16px;"><button class="btn" onclick="window.print()">🖨️ Imprimir / PDF</button></div>
+<div class="header">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <img src="{logo}" class="logo" alt="{company}" onerror="this.style.display='none'"/>
+    <div><h1>{company}</h1><p style="color:#666;font-size:12px;">{address}</p><p style="color:#666;font-size:12px;">Tel: {phone}{f' · RTN: {rtn}' if rtn else ''}</p></div>
+  </div>
+  <div style="text-align:right;">
+    <div class="inv-num">{inv['invoice_num']}</div>
+    <p style="margin-top:8px;font-size:12px;color:#666;">Fecha: {inv['created_at'][:10]}</p>
+    <p style="margin-top:4px;"><span class="status-badge">{inv['status'].upper()}</span></p>
+    {f'<p style="font-size:11px;color:#888;margin-top:4px;">CAI: {inv["cai"]}</p>' if inv.get('cai') else ''}
+  </div>
+</div>
+<div class="grid-2">
+  <div class="box"><h3>Facturar a</h3><p><strong>{inv['client_name'] or '—'}</strong><br/>{f'RTN: {inv["client_rtn"]}' if inv.get('client_rtn') else ''}<br/>{inv.get('client_address','')}</p></div>
+  <div class="box"><h3>Detalles de pago</h3><p>Método: <strong>{inv['payment_method'].title()}</strong><br/>Subtotal: {fmt(inv['subtotal'])}<br/>ISV ({inv['isv_rate']}%): {fmt(inv['isv'])}</p></div>
+</div>
+<table><thead><tr><th>Descripción</th><th style="text-align:center;">Cant.</th><th style="text-align:right;">Precio unit.</th><th style="text-align:right;">Total</th></tr></thead>
+<tbody>{items_html}</tbody></table>
+<div class="totals">
+  <div class="total-row"><span>Subtotal</span><span style="font-family:monospace;">{fmt(inv['subtotal'])}</span></div>
+  <div class="total-row"><span>ISV ({inv['isv_rate']}%)</span><span style="font-family:monospace;">{fmt(inv['isv'])}</span></div>
+  <div class="total-final"><span>TOTAL</span><span style="font-family:monospace;">{fmt(inv['total'])}</span></div>
+</div>
+{f'<div style="margin-top:16px;padding:10px 14px;background:#f8f8f8;border-radius:8px;font-size:12px;color:#555;"><strong>Notas:</strong> {inv["notes"]}</div>' if inv.get('notes') else ''}
+<div class="footer">{company} · {address} · Tel: {phone} · Factura generada por Servvoo</div>
+</body></html>"""
+    from flask import Response
+    return Response(html, mimetype="text/html")
 
 # ─── CLIENT BOOKING ──────────────────────────────────────────────────────────
 @app.route("/api/booking/slots")
