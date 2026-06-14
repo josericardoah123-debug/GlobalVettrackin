@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LabTrack Backend — PostgreSQL + SQLite fallback"""
+"""Servvoo Backend — PostgreSQL + SQLite fallback"""
 import sqlite3, json, uuid, os, hashlib
 from flask import Flask, request, jsonify, send_from_directory, Response
 from datetime import datetime
@@ -24,7 +24,7 @@ if HAS_WS:
 # {tech_id: {lat, lng, heading, km, destName, tripType, timestamp}}
 live_positions = {}
 ws_clients = {}  # {tech_id: [ws_connections]}
-DB = os.path.join(os.path.dirname(__file__), "labtrack.db")
+DB = os.path.join(os.path.dirname(__file__), "servvoo.db")
 DATABASE_URL = os.environ.get("DATABASE_URL","")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://","postgresql://",1)
@@ -53,10 +53,11 @@ def init_db():
     if is_pg():
         cur=conn.cursor()
         tbls=[
-            "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'technician', color TEXT DEFAULT 'purple', phone TEXT DEFAULT '', status TEXT DEFAULT 'available', current_trip_id TEXT, rendimiento REAL DEFAULT 12, tipo_combustible TEXT DEFAULT 'gasolina', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, logo TEXT DEFAULT '', color TEXT DEFAULT '#0F6E56', plan TEXT DEFAULT 'basic', rubro TEXT DEFAULT 'general', rtn TEXT DEFAULT '', phone TEXT DEFAULT '', address TEXT DEFAULT '', active INTEGER DEFAULT 1, created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'technician', color TEXT DEFAULT 'purple', phone TEXT DEFAULT '', status TEXT DEFAULT 'available', current_trip_id TEXT, rendimiento REAL DEFAULT 12, tipo_combustible TEXT DEFAULT 'gasolina', company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS inventory (id TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT NOT NULL, serial TEXT DEFAULT '', category TEXT DEFAULT '', stock INTEGER DEFAULT 0, unit_cost REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
-            "CREATE TABLE IF NOT EXISTS clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT DEFAULT '', phone TEXT DEFAULT '', email TEXT DEFAULT '', city TEXT DEFAULT '', department TEXT DEFAULT '', type TEXT DEFAULT 'Clínica', lat REAL, lng REAL, address TEXT DEFAULT '', rtn TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
-            "CREATE TABLE IF NOT EXISTS trips (id TEXT PRIMARY KEY, technician_id TEXT NOT NULL, client_id TEXT NOT NULL, date TEXT NOT NULL, status TEXT DEFAULT 'pendiente', trip_type TEXT DEFAULT 'entrega', equipment_ids TEXT DEFAULT '[]', origin_lat REAL, origin_lng REAL, origin_label TEXT, destination_lat REAL, destination_lng REAL, destination_label TEXT, stops TEXT DEFAULT '[]', route_points TEXT DEFAULT '[]', start_time TEXT DEFAULT '', end_time TEXT DEFAULT '', km REAL DEFAULT 0, reimbursement REAL DEFAULT 0, notes TEXT DEFAULT '', report_id TEXT, report_num TEXT, created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact TEXT DEFAULT '', phone TEXT DEFAULT '', email TEXT DEFAULT '', city TEXT DEFAULT '', department TEXT DEFAULT '', type TEXT DEFAULT 'Clínica', lat REAL, lng REAL, address TEXT DEFAULT '', rtn TEXT DEFAULT '', company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS trips (id TEXT PRIMARY KEY, technician_id TEXT NOT NULL, client_id TEXT NOT NULL, date TEXT NOT NULL, status TEXT DEFAULT 'pendiente', trip_type TEXT DEFAULT 'entrega', equipment_ids TEXT DEFAULT '[]', origin_lat REAL, origin_lng REAL, origin_label TEXT, destination_lat REAL, destination_lng REAL, destination_label TEXT, stops TEXT DEFAULT '[]', route_points TEXT DEFAULT '[]', start_time TEXT DEFAULT '', end_time TEXT DEFAULT '', km REAL DEFAULT 0, reimbursement REAL DEFAULT 0, notes TEXT DEFAULT '', report_id TEXT, report_num TEXT, company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS visit_reports (id TEXT PRIMARY KEY, trip_id TEXT, technician_id TEXT, client_id TEXT, report_num TEXT, fecha TEXT, hora_llegada TEXT DEFAULT '', hora_salida TEXT DEFAULT '', marca TEXT DEFAULT '', modelo TEXT DEFAULT '', serie TEXT DEFAULT '', condicion TEXT DEFAULT '', reparaciones TEXT DEFAULT '', repuestos TEXT DEFAULT '', calibracion INTEGER, control_calidad INTEGER, signed INTEGER DEFAULT 0, sig_time TEXT DEFAULT '', sig_data TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS diprodi_equipos (id TEXT PRIMARY KEY, num INTEGER, localizacion TEXT DEFAULT '', cliente TEXT DEFAULT '', tipo TEXT DEFAULT '', modelo TEXT DEFAULT '', serie TEXT DEFAULT '', fecha_ingreso TEXT DEFAULT '', fecha_instalacion TEXT DEFAULT '', version_sw TEXT DEFAULT '', comentarios TEXT DEFAULT '', estado TEXT DEFAULT 'instalado', modalidad TEXT DEFAULT 'leasing', contrato_inicio TEXT, contrato_meses INTEGER, contrato_valor REAL, cuota_mensual REAL, prima REAL, interes REAL, categoria TEXT DEFAULT 'equipo', created_at TEXT DEFAULT current_timestamp)",
@@ -66,7 +67,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS sales_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, monto REAL DEFAULT 0, descripcion TEXT DEFAULT '', cliente TEXT DEFAULT '', fecha TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS odometer_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, mes TEXT NOT NULL, km_inicio REAL DEFAULT 0, km_fin REAL DEFAULT 0, factura_monto REAL DEFAULT 0, km_laborales REAL DEFAULT 0, reembolso REAL DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', modalidad TEXT DEFAULT 'presencial', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', accepted_at TEXT DEFAULT '', completed_at TEXT DEFAULT '', video_link TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
-            "CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, invoice_num TEXT NOT NULL, client_id TEXT, client_name TEXT DEFAULT '', client_rtn TEXT DEFAULT '', client_address TEXT DEFAULT '', items TEXT DEFAULT '[]', subtotal REAL DEFAULT 0, isv_rate REAL DEFAULT 15, isv REAL DEFAULT 0, total REAL DEFAULT 0, status TEXT DEFAULT 'pendiente', payment_method TEXT DEFAULT 'efectivo', cai TEXT DEFAULT '', notes TEXT DEFAULT '', technician_id TEXT DEFAULT '', trip_id TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, invoice_num TEXT NOT NULL, client_id TEXT, client_name TEXT DEFAULT '', client_rtn TEXT DEFAULT '', client_address TEXT DEFAULT '', items TEXT DEFAULT '[]', subtotal REAL DEFAULT 0, isv_rate REAL DEFAULT 15, isv REAL DEFAULT 0, total REAL DEFAULT 0, status TEXT DEFAULT 'pendiente', payment_method TEXT DEFAULT 'efectivo', cai TEXT DEFAULT '', notes TEXT DEFAULT '', technician_id TEXT DEFAULT '', trip_id TEXT DEFAULT '', company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS invoice_sequence (id TEXT PRIMARY KEY, year INTEGER, month INTEGER, last_num INTEGER DEFAULT 0)",
         ]
         for t in tbls:
@@ -364,9 +365,9 @@ def save_report():
     d=request.get_json(); rid="rep_"+uuid.uuid4().hex[:12]
     now=datetime.now(); year=now.strftime("%Y"); month=now.strftime("%m")
     conn=get_db()
-    cur=ex(conn,"SELECT COUNT(*) as c FROM visit_reports WHERE report_num LIKE ?",(f"LT-{year}{month}-%",))
+    cur=ex(conn,"SELECT COUNT(*) as c FROM visit_reports WHERE report_num LIKE ?",(f"SV-{year}{month}-%",))
     row=r2d(cur.fetchone()); count=int(row.get("c") or row.get("count") or 0)
-    rnum=f"LT-{year}{month}-{str(count+1).zfill(3)}"
+    rnum=f"SV-{year}{month}-{str(count+1).zfill(3)}"
     cal=1 if d.get("calibracion")==True else (0 if d.get("calibracion")==False else None)
     cc=1 if d.get("controlCalidad")==True else (0 if d.get("controlCalidad")==False else None)
     tech_id = d.get("technicianId","")
@@ -919,6 +920,60 @@ thead{{background:#0F6E56;color:white;}}thead th{{padding:10px;text-align:left;f
     from flask import Response
     return Response(html, mimetype="text/html")
 
+# ─── COMPANIES (MULTI-TENANT) ────────────────────────────────────────────────
+@app.route("/api/companies")
+def get_companies():
+    conn=get_db()
+    cur=ex(conn,"SELECT * FROM companies ORDER BY name")
+    rows=rlist(cur.fetchall()); conn.close()
+    return jsonify(rows)
+
+@app.route("/api/companies", methods=["POST"])
+def create_company():
+    d=request.get_json()
+    cid="co_"+uuid.uuid4().hex[:8]
+    slug=d.get("name","").lower().replace(" ","_")[:20]
+    conn=get_db()
+    ex(conn,"INSERT INTO companies(id,name,slug,logo,color,plan,rubro,phone,address,rtn) VALUES(?,?,?,?,?,?,?,?,?,?)",
+       (cid,d["name"],slug,d.get("logo",""),d.get("color","#185FA5"),d.get("plan","basic"),
+        d.get("rubro","general"),d.get("phone",""),d.get("address",""),d.get("rtn","")))
+    # Create admin user for new company
+    uid="u_"+uuid.uuid4().hex[:8]
+    ex(conn,"INSERT INTO users(id,name,email,password_hash,role,color,status,company_id) VALUES(?,?,?,?,?,?,?,?)",
+       (uid,d.get("adminName","Administrador"),d.get("adminEmail",""),
+        hash_pw(d.get("adminPassword","admin123")),"admin","blue","available",cid))
+    conn.commit()
+    cur=ex(conn,"SELECT * FROM companies WHERE id=?",(cid,))
+    row=r2d(cur.fetchone()); conn.close()
+    return jsonify({"company":row,"userId":uid})
+
+@app.route("/api/companies/<cid>", methods=["PATCH"])
+def update_company(cid):
+    d=request.get_json(); conn=get_db(); fields,vals=[],[]
+    for k,col in [("name","name"),("logo","logo"),("color","color"),("plan","plan"),
+                  ("rubro","rubro"),("phone","phone"),("address","address"),("rtn","rtn"),("active","active")]:
+        if k in d: fields.append(f"{col}=?"); vals.append(d[k])
+    if fields:
+        vals.append(cid); ex(conn,f"UPDATE companies SET {','.join(fields)} WHERE id=?",vals); conn.commit()
+    cur=ex(conn,"SELECT * FROM companies WHERE id=?",(cid,))
+    row=r2d(cur.fetchone()); conn.close()
+    return jsonify(row)
+
+# ─── SUPER ADMIN ─────────────────────────────────────────────────────────────
+@app.route("/api/superadmin/stats")
+def superadmin_stats():
+    conn=get_db()
+    cur=ex(conn,"SELECT COUNT(*) as c FROM companies WHERE active=1")
+    companies=int(r2d(cur.fetchone()).get("c") or 0)
+    cur=ex(conn,"SELECT COUNT(*) as c FROM users")
+    users=int(r2d(cur.fetchone()).get("c") or 0)
+    cur=ex(conn,"SELECT COUNT(*) as c FROM trips")
+    trips=int(r2d(cur.fetchone()).get("c") or 0)
+    cur=ex(conn,"SELECT COUNT(*) as c FROM invoices")
+    invoices=int(r2d(cur.fetchone()).get("c") or 0)
+    conn.close()
+    return jsonify({"companies":companies,"users":users,"trips":trips,"invoices":invoices})
+
 # ─── CLIENT BOOKING ──────────────────────────────────────────────────────────
 @app.route("/api/booking/slots")
 def get_slots():
@@ -1292,5 +1347,5 @@ migrate_db()
 
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
-    print(f"LabTrack en http://localhost:{port} — {'PostgreSQL' if is_pg() else 'SQLite'}",flush=True)
+    print(f"Servvoo en http://localhost:{port} — {'PostgreSQL' if is_pg() else 'SQLite'}",flush=True)
     app.run(host="0.0.0.0",port=port,debug=False)

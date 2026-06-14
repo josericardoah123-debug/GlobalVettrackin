@@ -6,10 +6,10 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="LabTrack"/>
+<meta name="apple-mobile-web-app-title" content="Servvoo"/>
 <meta name="theme-color" content="#0C447C"/>
 <link rel="manifest" href="/manifest.json"/>
-<title>LabTrack</title>
+<title>Servvoo — Plataforma de Operaciones</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -222,8 +222,8 @@ function GoogleMap({trip,apiKey,height=320}){
     } else if(!document.getElementById("gmaps-script")){
       const s=document.createElement("script");
       s.id="gmaps-script";
-      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=directions,places&callback=__labtrackMapInit`;
-      window.__labtrackMapInit=initMap;
+      s.src=`https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=directions,places&callback=__servvooMapInit`;
+      window.__servvooMapInit=initMap;
       document.head.appendChild(s);
     } else {
       // Script loading, wait
@@ -470,8 +470,8 @@ function AuthScreen({onLogin}){
         {mode==="login"&&(
           <div style={{marginTop:16,background:"#f0f2f5",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#6b7685"}}>
             <div style={{fontWeight:600,marginBottom:4}}>Cuentas de prueba:</div>
-            <div>Admin: admin@labtrack.hn / admin123</div>
-            <div>Técnico: carlos@labtrack.hn / tech123</div>
+            <div>Admin: admin@servvoo.hn / admin123</div>
+            <div>Técnico: carlos@servvoo.hn / tech123</div>
           </div>
         )}
       </div>
@@ -1066,7 +1066,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
   // Report number comes from server after save — show placeholder until then
   const year=now.getFullYear();
   const month=String(now.getMonth()+1).padStart(2,"0");
-  const [reportNum,setReportNum]=useState("LT-"+year+month+"-...");
+  const [reportNum,setReportNum]=useState("SV-"+year+month+"-...");
   const [reportSaved,setReportSaved]=useState(false);
 
   const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
@@ -1171,7 +1171,7 @@ function ReportModal({destIdx,client,arrivalTime,destType,user,onSave,onClose,tr
 <html lang="es">
 <head>
 <meta charset="UTF-8"/>
-<title>Reporte ${reportNum}</title>
+<title>Servvoo — Reporte ${reportNum}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:Arial,sans-serif;padding:20px;font-size:13px;color:#222;}
@@ -2059,7 +2059,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
         <div style={{background:"var(--card)",borderRadius:22,overflow:"hidden",minHeight:620}}>
           {/* Header */}
           <div style={{background:"linear-gradient(135deg,#0C447C,#185FA5)",padding:"18px 18px 14px"}}>
-            <div style={{fontSize:18,fontWeight:800,color:"white",letterSpacing:"-0.5px"}}>LabTrack</div>
+            <div style={{fontSize:18,fontWeight:800,color:"white",letterSpacing:"-0.5px"}}>Servvoo</div>
             <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:1}}>{user.name} · {user.role==="admin"?"Admin":"Técnico"}</div>
           </div>
 
@@ -2482,8 +2482,8 @@ function Ajustes({rate,onSaveRate,mapsKey,onSaveMapsKey,companyName,onSaveCompan
         <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}><Btn variant="primary" onClick={()=>{onSaveFuelPrices(fuelGasPrice,fuelDieselPrice);}}>Guardar precios</Btn></div>
       </div>
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:20}}>
-        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:8}}>Acerca de LabTrack</div>
-        <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8}}>Versión 2.0 · Plataforma de operaciones de campo<br/>Diseñado para empresas de equipos de laboratorio en Honduras 🇭🇳<br/><br/><span style={{color:"#1D9E75",fontWeight:600}}>✓ Conectado a base de datos en vivo</span></div>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--text)",marginBottom:8}}>Acerca de Servvoo</div>
+        <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8}}>Versión 1.0 · Plataforma de operaciones inteligente<br/>Diseñado para empresas en Centroamérica y el mundo 🌎<br/><br/><span style={{color:"#1D9E75",fontWeight:600}}>✓ Conectado a base de datos en vivo</span></div>
       </div>
       <div style={{background:"#FCEBEB",border:"1px solid #E74C3C",borderRadius:12,padding:16}}>
         <div style={{fontWeight:700,fontSize:14,color:"#C0392B",marginBottom:4}}>⚠️ Zona de pruebas</div>
@@ -3252,6 +3252,145 @@ function SalesAdmin({techs}){
 
 
 
+
+// ─── SUPER ADMIN PANEL ───────────────────────────────────────────────────────
+function SuperAdmin(){
+  const [companies,setCompanies]=useState([]);
+  const [stats,setStats]=useState({});
+  const [showNew,setShowNew]=useState(false);
+  const [form,setForm]=useState({name:"",rubro:"veterinaria",plan:"basic",adminEmail:"",adminPassword:"admin123",adminName:"Administrador",phone:"",address:"",color:"#185FA5"});
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    Promise.all([
+      fetch("/api/companies").then(r=>r.json()),
+      fetch("/api/superadmin/stats").then(r=>r.json())
+    ]).then(([co,st])=>{setCompanies(co);setStats(st);setLoading(false);}).catch(()=>setLoading(false));
+  },[]);
+
+  const rubros={veterinaria:"🐾 Veterinaria",medico:"🏥 Médico/Clínica",bufete:"⚖️ Bufete",tecnologia:"💻 Tecnología",construccion:"🏗️ Construcción",general:"🏢 General"};
+  const planes={basic:"Básico $19",pro:"Pro $49",enterprise:"Enterprise $99"};
+  const planColors={basic:"#185FA5",pro:"#0F6E56",enterprise:"#3C3489"};
+
+  const createCompany=async()=>{
+    if(!form.name||!form.adminEmail){alert("Nombre de empresa y correo admin son requeridos");return;}
+    const res=await fetch("/api/companies",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
+    const data=await res.json();
+    if(data.company){
+      setCompanies(p=>[...p,data.company]);
+      setShowNew(false);
+      alert(`✅ Empresa "${form.name}" creada
+Admin: ${form.adminEmail}
+Contraseña: ${form.adminPassword}`);
+      setForm({name:"",rubro:"veterinaria",plan:"basic",adminEmail:"",adminPassword:"admin123",adminName:"Administrador",phone:"",address:"",color:"#185FA5"});
+    }
+  };
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",borderRadius:14,padding:20,marginBottom:16,color:"white"}}>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>SUPER ADMIN</div>
+        <div style={{fontWeight:800,fontSize:22,marginBottom:12}}>🌎 Panel de control — Servvoo</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          {[["Empresas",stats.companies||0,"🏢"],["Usuarios",stats.users||0,"👥"],["Viajes",stats.trips||0,"🚗"],["Facturas",stats.invoices||0,"🧾"]].map(([l,v,i])=>(
+            <div key={l} style={{background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"10px 12px",textAlign:"center"}}>
+              <div style={{fontSize:18}}>{i}</div>
+              <div style={{fontSize:20,fontWeight:800,marginTop:2}}>{v}</div>
+              <div style={{fontSize:10,opacity:0.7,textTransform:"uppercase"}}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Companies list */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:16,color:"var(--text)"}}>Empresas registradas</div>
+        <button onClick={()=>setShowNew(true)} style={{background:"#0F6E56",color:"white",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Nueva empresa</button>
+      </div>
+
+      {loading&&<div style={{textAlign:"center",padding:30,color:"var(--text2)"}}>Cargando...</div>}
+
+      {companies.map(co=>(
+        <div key={co.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            {co.logo?<img src={co.logo} style={{height:36,borderRadius:6}} alt={co.name} onError={e=>e.target.style.display="none"}/>:
+              <div style={{width:36,height:36,borderRadius:6,background:co.color||"#185FA5",display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontWeight:700,fontSize:14}}>{co.name[0]}</div>}
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{co.name}</div>
+              <div style={{fontSize:11,color:"var(--text2)"}}>/{co.slug} · {rubros[co.rubro]||co.rubro}</div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"flex-end"}}>
+              <span style={{fontSize:10,background:co.active?"#E1F5EE":"#FCEBEB",color:co.active?"#0F6E56":"#E74C3C",padding:"2px 8px",borderRadius:4,fontWeight:600}}>{co.active?"Activa":"Inactiva"}</span>
+              <span style={{fontSize:10,background:"#EEEDFE",color:"#3C3489",padding:"2px 8px",borderRadius:4,fontWeight:600}}>{planes[co.plan]||co.plan}</span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={async()=>{
+              const active=co.active?0:1;
+              await fetch(`/api/companies/${co.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({active})});
+              setCompanies(p=>p.map(c=>c.id===co.id?{...c,active}:c));
+            }} style={{flex:1,background:co.active?"#FCEBEB":"#E1F5EE",color:co.active?"#E74C3C":"#0F6E56",border:"none",borderRadius:7,padding:"6px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              {co.active?"⏸ Desactivar":"▶ Activar"}
+            </button>
+            <select value={co.plan} onChange={async e=>{
+              await fetch(`/api/companies/${co.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan:e.target.value})});
+              setCompanies(p=>p.map(c=>c.id===co.id?{...c,plan:e.target.value}:c));
+            }} style={{flex:1,padding:"6px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11,cursor:"pointer"}}>
+              <option value="basic">Básico $19</option>
+              <option value="pro">Pro $49</option>
+              <option value="enterprise">Enterprise $99</option>
+            </select>
+          </div>
+        </div>
+      ))}
+
+      {/* New company modal */}
+      {showNew&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,overflowY:"auto",padding:"16px 8px"}}>
+          <div style={{maxWidth:480,margin:"0 auto",background:"var(--card)",borderRadius:16,overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#1a1a2e,#16213e)",padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"white"}}>🏢 Nueva empresa</div>
+              <button onClick={()=>setShowNew(false)} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:"50%",width:28,height:28,color:"white",cursor:"pointer",fontSize:16}}>×</button>
+            </div>
+            <div style={{padding:16}}>
+              {[["Nombre de la empresa","name","text","Ej: Clínica San José"],
+                ["Teléfono","phone","tel","+504 9xxx-xxxx"],
+                ["Dirección","address","text","Dirección de la empresa"],
+                ["Nombre del admin","adminName","text","Ej: Juan Pérez"],
+                ["Correo del admin","adminEmail","email","admin@empresa.com"],
+                ["Contraseña inicial","adminPassword","password","Mínimo 6 caracteres"],
+              ].map(([l,k,t,ph])=>(
+                <div key={k} style={{marginBottom:8}}>
+                  <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>{l}</div>
+                  <input type={t} value={form[k]} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))} placeholder={ph}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}/>
+                </div>
+              ))}
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Rubro</div>
+                <select value={form.rubro} onChange={e=>setForm(p=>({...p,rubro:e.target.value}))} style={{width:"100%",padding:"8px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}>
+                  {Object.entries(rubros).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Plan</div>
+                <select value={form.plan} onChange={e=>setForm(p=>({...p,plan:e.target.value}))} style={{width:"100%",padding:"8px",borderRadius:7,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13}}>
+                  {Object.entries(planes).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowNew(false)} style={{flex:1,background:"transparent",color:"var(--text2)",border:"1px solid var(--border)",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={createCompany} style={{flex:2,background:"#0F6E56",color:"white",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>✅ Crear empresa</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── FACTURACIÓN ─────────────────────────────────────────────────────────────
 function Facturacion({clients,techs,repuestos=[],inventory=[]}){
   const [invoices,setInvoices]=useState([]);
@@ -3818,7 +3957,7 @@ function App(){
   const [reports,setReports]=useState([]);
   const [rate,setRate]=useState(5.0);
   const [mapsKey,setMapsKey]=useState("");
-  const [companyName,setCompanyName]=useState("LabTrack");
+  const [companyName,setCompanyName]=useState("Servvoo");
   const [fuelGasPrice,setFuelGasPrice]=useState(95);
   const [fuelDieselPrice,setFuelDieselPrice]=useState(85);
   const [viewTrip,setViewTrip]=useState(null);
