@@ -1349,3 +1349,4 @@ if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
     print(f"Servvoo en http://localhost:{port} — {'PostgreSQL' if is_pg() else 'SQLite'}",flush=True)
     app.run(host="0.0.0.0",port=port,debug=False)
+# Servvoo v26 - Multi-tenant - 2026
