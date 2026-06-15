@@ -4358,7 +4358,6 @@ function App(){
 
   const handleLogin=u=>{LS.set("lt_user",u);setUser(u);setPage(u.role==="admin"?"dashboard":"app");};
   const handleLogout=()=>{LS.remove("lt_user");setUser(null);setPage("dashboard");};
-  const handleLogout=()=>{LS.set("lt_user",null);setUser(null);setPage("dashboard");};
 
   const approveTrip=async(id)=>{
     await API.patch(`/api/trips/${id}`,{status:"aprobado"});
