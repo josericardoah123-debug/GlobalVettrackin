@@ -2424,10 +2424,10 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
             {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"citas",i:"📅",l:"Citas"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"},{k:"__logout__",i:"🚪",l:"Salir"}].map(t=>(
               <button key={t.k} onClick={()=>{
+                if(t.k==="__logout__"){if(confirm("¿Cerrar sesión?"))onLogout();return;}
                 if(t.k==="viaje"&&active){setTab("activo");return;}
-                if(t.k!=="inicio"&&t.k!=="historial"&&t.k!=="perfil") return;
                 setTab(t.k);
-              }} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:(tab===t.k||(t.k==="viaje"&&(tab==="activo"||tab==="viaje"||orderMode!==null)))?"#185FA5":"var(--text2)"}}>
+              }} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"4px 0",color:t.k==="__logout__"?"#E74C3C":(tab===t.k||(t.k==="viaje"&&(tab==="activo"||tab==="viaje"||orderMode!==null)))?"#185FA5":"var(--text2)"}}>
                 <span style={{fontSize:20}}>{t.i}</span>
                 <span style={{fontSize:9,fontWeight:(tab===t.k||(t.k==="viaje"&&(tab==="activo"||tab==="viaje"||orderMode!==null)))?700:400}}>{t.l}</span>
               </button>
@@ -4376,7 +4376,14 @@ function App(){
   const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");return t;};
 
   if(!user) return <AuthScreen onLogin={handleLogin}/>;
-  if(user.role==="superadmin") return <div style={{minHeight:"100vh",background:"var(--bg)",padding:16}}><SuperAdmin/></div>;
+  if(user.role==="superadmin") return (
+    <div style={{minHeight:"100vh",background:"var(--bg)",padding:16}}>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+        <button onClick={handleLogout} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🚪 Cerrar sesión</button>
+      </div>
+      <SuperAdmin/>
+    </div>
+  );
 
   const isMobile=window.innerWidth<=768;
   const isAdmin=user.role==="admin";
@@ -4426,7 +4433,7 @@ function App(){
         </div>
         <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
           {nav.map(n=>(
-            <button key={n.id} onClick={()=>{setPage(n.id);if(isMobile)setSideOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,border:"none",background:page===n.id?"#E6F1FB":"transparent",color:page===n.id?"#185FA5":"var(--text2)",fontWeight:page===n.id?700:400,fontSize:13,cursor:"pointer",marginBottom:2,textAlign:"left",fontFamily:"inherit"}}>
+            <button key={n.id} onClick={()=>{if(n.id==="__logout__"){handleLogout();return;}setPage(n.id);if(isMobile)setSideOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,border:"none",background:n.id==="__logout__"?"#FCEBEB":page===n.id?"#E6F1FB":"transparent",color:n.id==="__logout__"?"#E74C3C":page===n.id?"#185FA5":"var(--text2)",fontWeight:page===n.id?700:400,fontSize:13,cursor:"pointer",marginBottom:2,textAlign:"left",fontFamily:"inherit"}}>
               <span style={{fontSize:16}}>{n.i}</span>{n.l}
               {n.id==="viajes"&&pendingCount>0&&isAdmin&&<span style={{marginLeft:"auto",background:"#993C1D",color:"white",borderRadius:20,fontSize:10,padding:"1px 7px",fontWeight:700}}>{pendingCount}</span>}
             </button>
