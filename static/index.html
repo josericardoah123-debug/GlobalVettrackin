@@ -3254,13 +3254,7 @@ function SalesAdmin({techs}){
 // ─── AI ASSISTANT ────────────────────────────────────────────────────────────
 function AIAssistant({user,companyId="diprodi"}){
   const [messages,setMessages]=useState([
-    {role:"assistant",text:"👋 ¡Hola! Soy tu asistente de negocios con IA. Puedo ayudarte con:
-• Análisis de tu negocio
-• Sugerencias para aumentar ventas
-• Recordatorios de días festivos
-• Ideas de promociones
-
-¿En qué te puedo ayudar hoy?"}
+    {role:"assistant",text:"👋 ¡Hola! Soy tu asistente de negocios con IA. Puedo ayudarte con:\n• Análisis de tu negocio\n• Sugerencias para aumentar ventas\n• Recordatorios de días festivos\n• Ideas de promociones\n\n¿En qué te puedo ayudar hoy?"}
   ]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
