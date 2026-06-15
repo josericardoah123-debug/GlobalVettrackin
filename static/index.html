@@ -1013,6 +1013,11 @@ function Tecnicos({techs,onAdd,onUpdate,onDelete,trips}){
           );
         })}
       </div>
+      {/* Invitations panel */}
+      <div style={{marginTop:20,background:"var(--surface)",borderRadius:12,padding:14,border:"1px solid var(--border)"}}>
+        <InvitacionesPanel companyId="diprodi"/>
+      </div>
+
       {show&&(
         <Modal title={editTech?"Editar técnico":"Agregar técnico"} onClose={()=>{setShow(false);setEditTech(null);}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1769,7 +1774,7 @@ function MisCitas({user}){
   );
 }
 
-function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[],fuelGasPrice=95,fuelDieselPrice=85}){
+function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,reports=[],fuelGasPrice=95,fuelDieselPrice=85,onLogout=()=>{}}){
   const [tab,setTab]=useState("inicio");
   const [active,setActive]=useState(false);
   const [km,setKm]=useState(0);
@@ -2417,7 +2422,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
 
           {/* Tab bar */}
           <div style={{display:"flex",borderTop:"1px solid var(--border)",padding:"8px 0 6px",background:"var(--card)"}}>
-            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"citas",i:"📅",l:"Citas"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"}].map(t=>(
+            {[{k:"inicio",i:"🏠",l:"Inicio"},{k:"citas",i:"📅",l:"Citas"},{k:"viaje",i:"🚗",l:"Viaje"},{k:"reportes_emp",i:"📄",l:"Reportes"},{k:"historial",i:"📋",l:"Historial"},{k:"perfil",i:"👤",l:"Perfil"},{k:"__logout__",i:"🚪",l:"Salir"}].map(t=>(
               <button key={t.k} onClick={()=>{
                 if(t.k==="viaje"&&active){setTab("activo");return;}
                 if(t.k!=="inicio"&&t.k!=="historial"&&t.k!=="perfil") return;
@@ -3536,6 +3541,92 @@ function ResumenFinanciero({companyId="diprodi"}){
   );
 }
 
+
+// ─── INVITATIONS PANEL ───────────────────────────────────────────────────────
+function InvitacionesPanel({companyId="diprodi"}){
+  const [invitations,setInvitations]=useState([]);
+  const [newRole,setNewRole]=useState("technician");
+  const [newEmail,setNewEmail]=useState("");
+  const [creating,setCreating]=useState(false);
+  const [lastLink,setLastLink]=useState("");
+
+  useEffect(()=>{
+    fetch(`/api/invitations?companyId=${companyId}`)
+      .then(r=>r.json()).then(setInvitations).catch(()=>{});
+  },[]);
+
+  const createInvite=async()=>{
+    setCreating(true);
+    const res=await fetch("/api/invitations",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({companyId,role:newRole,email:newEmail})});
+    const data=await res.json();
+    if(data.url){
+      setLastLink(data.url);
+      setInvitations(p=>[{...data,role:newRole,email:newEmail,used:0,created_at:new Date().toISOString()},...p]);
+      setNewEmail("");
+    }
+    setCreating(false);
+  };
+
+  const copyLink=(url)=>{
+    navigator.clipboard.writeText(url);
+    alert("✅ Link copiado al portapapeles");
+  };
+
+  return(
+    <div>
+      <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12}}>🔗 Invitar empleados</div>
+      
+      {/* Create invitation */}
+      <div style={{background:"var(--surface)",borderRadius:10,padding:12,marginBottom:12}}>
+        <div style={{fontSize:12,color:"var(--text2)",marginBottom:8}}>Genera un link único para que tu empleado cree su cuenta</div>
+        <div style={{display:"flex",gap:6,marginBottom:6}}>
+          <select value={newRole} onChange={e=>setNewRole(e.target.value)} style={{flex:1,padding:"7px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}>
+            <option value="technician">🔧 Técnico</option>
+            <option value="ventas">🤝 Ventas</option>
+            <option value="admin">👑 Admin</option>
+          </select>
+          <input value={newEmail} onChange={e=>setNewEmail(e.target.value)} placeholder="Email (opcional)" style={{flex:2,padding:"7px",borderRadius:7,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:12}}/>
+        </div>
+        <button onClick={createInvite} disabled={creating} style={{width:"100%",background:"#0F6E56",color:"white",border:"none",borderRadius:8,padding:"8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          {creating?"Generando...":"🔗 Generar link de invitación"}
+        </button>
+      </div>
+
+      {/* Last generated link */}
+      {lastLink&&(
+        <div style={{background:"#E1F5EE",borderRadius:10,padding:12,marginBottom:12,border:"1px solid #5DCAA5"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#0F6E56",marginBottom:6}}>✅ Link generado — compártelo con tu empleado:</div>
+          <div style={{fontSize:11,fontFamily:"monospace",background:"white",padding:"8px",borderRadius:6,wordBreak:"break-all",marginBottom:6,color:"#185FA5"}}>{lastLink}</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>copyLink(lastLink)} style={{flex:1,background:"#0F6E56",color:"white",border:"none",borderRadius:6,padding:"6px",fontSize:11,fontWeight:600,cursor:"pointer"}}>📋 Copiar link</button>
+            <a href={`https://wa.me/?text=Te invito a unirte a Servvoo: ${encodeURIComponent(lastLink)}`} target="_blank" style={{flex:1,background:"#25D366",color:"white",borderRadius:6,padding:"6px",fontSize:11,fontWeight:600,textAlign:"center",textDecoration:"none",display:"block"}}>📱 Enviar por WhatsApp</a>
+          </div>
+        </div>
+      )}
+
+      {/* Existing invitations */}
+      {invitations.length>0&&(
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",marginBottom:6}}>Invitaciones enviadas</div>
+          {invitations.map(inv=>(
+            <div key={inv.id||inv.code} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 10px",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:12,color:"var(--text)",fontWeight:600}}>{inv.role==="admin"?"👑 Admin":inv.role==="ventas"?"🤝 Ventas":"🔧 Técnico"} {inv.email?`· ${inv.email}`:""}</div>
+                <div style={{fontSize:10,color:"var(--text2)",marginTop:1,fontFamily:"monospace"}}>{inv.code}</div>
+              </div>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:10,background:inv.used?"#E1F5EE":"#FFF3E0",color:inv.used?"#0F6E56":"#EF9F27",padding:"2px 6px",borderRadius:4,fontWeight:600}}>{inv.used?"Usado":"Pendiente"}</span>
+                {!inv.used&&<button onClick={()=>copyLink(`${window.location.origin}/unirse/${inv.code}`)} style={{fontSize:10,background:"#E6F1FB",color:"#185FA5",border:"none",borderRadius:4,padding:"2px 8px",cursor:"pointer"}}>Copiar</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SUPER ADMIN PANEL ───────────────────────────────────────────────────────
 function SuperAdmin(){
   const [companies,setCompanies]=useState([]);
@@ -4266,6 +4357,7 @@ function App(){
   useEffect(()=>{if(user) loadAll();},[user]);
 
   const handleLogin=u=>{LS.set("lt_user",u);setUser(u);setPage(u.role==="admin"?"dashboard":"app");};
+  const handleLogout=()=>{LS.remove("lt_user");setUser(null);setPage("dashboard");};
   const handleLogout=()=>{LS.set("lt_user",null);setUser(null);setPage("dashboard");};
 
   const approveTrip=async(id)=>{
@@ -4308,6 +4400,7 @@ function App(){
     {id:"finanzas",l:"Finanzas",i:"📊"},
     {id:"ia",l:"IA",i:"🤖"},
     {id:"ajustes",l:"Ajustes",i:"⚙️"},
+    {id:"__logout__",l:"Cerrar sesión",i:"🚪"},
   ];
   const techNav=[
     {id:"app",l:"Mi App",i:"📱"},
@@ -4367,7 +4460,7 @@ function App(){
             {page==="inventario"&&isAdmin&&<Inventario inventory={inventory} onAdd={addInventory}/>}
             {page==="clientes"  &&isAdmin&&<Clientes clients={clients} onAdd={addClient} trips={trips} inventory={inventory}/>}
             {page==="tecnicos"  &&isAdmin&&<Tecnicos techs={techs} onAdd={addTech} onUpdate={updateTech} onDelete={deleteTech} trips={trips}/>}
-            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice}/>}
+            {page==="app"       &&!isAdmin&&<AppEmpleado user={user} trips={trips} onSaveTrip={saveTrip} inventory={inventory} clients={clients} rate={rate} mapsKey={mapsKey} reports={reports} fuelGasPrice={fuelGasPrice} fuelDieselPrice={fuelDieselPrice} onLogout={handleLogout}/>}
             {page==="tracking"  &&isAdmin&&<LiveTracking techs={techs} clients={clients} mapsKey={mapsKey}/>}
             {page==="agenda"    &&isAdmin&&<AgendaAdmin techs={techs}/>}
             {page==="calendario"&&isAdmin&&<CalendarioAdmin companyId="diprodi"/>}

@@ -70,6 +70,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, invoice_num TEXT NOT NULL, client_id TEXT, client_name TEXT DEFAULT '', client_rtn TEXT DEFAULT '', client_address TEXT DEFAULT '', items TEXT DEFAULT '[]', subtotal REAL DEFAULT 0, isv_rate REAL DEFAULT 15, isv REAL DEFAULT 0, total REAL DEFAULT 0, status TEXT DEFAULT 'pendiente', payment_method TEXT DEFAULT 'efectivo', cai TEXT DEFAULT '', notes TEXT DEFAULT '', technician_id TEXT DEFAULT '', trip_id TEXT DEFAULT '', company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS invoice_sequence (id TEXT PRIMARY KEY, year INTEGER, month INTEGER, last_num INTEGER DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY, company_id TEXT DEFAULT 'diprodi', title TEXT DEFAULT '', date TEXT NOT NULL, time TEXT DEFAULT '', color TEXT DEFAULT '#EF9F27', all_day INTEGER DEFAULT 0, notes TEXT DEFAULT '', blocks_booking INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS invitations (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, code TEXT UNIQUE NOT NULL, email TEXT DEFAULT '', role TEXT DEFAULT 'technician', used INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
         ]
         for t in tbls:
             try: cur.execute(t)
@@ -95,6 +96,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS odometer_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,km_inicio REAL DEFAULT 0,km_fin REAL DEFAULT 0,factura_monto REAL DEFAULT 0,km_laborales REAL DEFAULT 0,reembolso REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',modalidad TEXT DEFAULT 'presencial',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',accepted_at TEXT DEFAULT '',completed_at TEXT DEFAULT '',video_link TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS calendar_events(id TEXT PRIMARY KEY,company_id TEXT DEFAULT 'diprodi',title TEXT DEFAULT '',date TEXT NOT NULL,time TEXT DEFAULT '',color TEXT DEFAULT '#EF9F27',all_day INTEGER DEFAULT 0,notes TEXT DEFAULT '',blocks_booking INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS invitations(id TEXT PRIMARY KEY,company_id TEXT NOT NULL,code TEXT UNIQUE NOT NULL,email TEXT DEFAULT '',role TEXT DEFAULT 'technician',used INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY,invoice_num TEXT NOT NULL,client_id TEXT,client_name TEXT DEFAULT '',client_rtn TEXT DEFAULT '',client_address TEXT DEFAULT '',items TEXT DEFAULT '[]',subtotal REAL DEFAULT 0,isv_rate REAL DEFAULT 15,isv REAL DEFAULT 0,total REAL DEFAULT 0,status TEXT DEFAULT 'pendiente',payment_method TEXT DEFAULT 'efectivo',cai TEXT DEFAULT '',notes TEXT DEFAULT '',technician_id TEXT DEFAULT '',trip_id TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS invoice_sequence(id TEXT PRIMARY KEY,year INTEGER,month INTEGER,last_num INTEGER DEFAULT 0);
         """)
@@ -160,10 +162,14 @@ def login():
 def register():
     d=request.get_json()
     uid_=str(uuid.uuid4())[:8]
+    company_id = d.get("companyId","diprodi")
     conn=get_db()
     try:
-        ex(conn,"INSERT INTO users(id,name,email,password_hash,role,color,phone,status,rendimiento,tipo_combustible) VALUES(?,?,?,?,?,?,?,?,?,?)",
-           ("u"+uid_,d["name"],d["email"].lower(),hash_pw(d.get("password","user123")),d.get("role","technician"),d.get("color","purple"),d.get("phone",""),"available",float(d.get("rendimiento",12)),d.get("tipoCombustible","gasolina")))
+        ex(conn,"INSERT INTO users(id,name,email,password_hash,role,color,phone,status,rendimiento,tipo_combustible,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+           ("u"+uid_,d["name"],d["email"].lower(),hash_pw(d.get("password","user123")),d.get("role","technician"),d.get("color","purple"),d.get("phone",""),"available",float(d.get("rendimiento",12)),d.get("tipoCombustible","gasolina"),company_id))
+        # Mark invitation as used
+        if d.get("inviteCode"):
+            ex(conn,"UPDATE invitations SET used=1 WHERE code=?",(d["inviteCode"],))
         conn.commit()
         cur=ex(conn,"SELECT * FROM users WHERE email=?",(d["email"].lower(),))
         row=mu(r2d(cur.fetchone())); conn.close()
@@ -1134,6 +1140,126 @@ def finance_summary():
         "topServices": top_services, "newClients": new_clients
     })
 
+
+# ─── INVITATIONS ─────────────────────────────────────────────────────────────
+@app.route("/api/invitations", methods=["POST"])
+def create_invitation():
+    d = request.get_json()
+    import secrets as _secrets
+    code = _secrets.token_urlsafe(8)
+    inv_id = "inv_" + uuid.uuid4().hex[:8]
+    company_id = d.get("companyId","diprodi")
+    conn = get_db()
+    ex(conn, "INSERT INTO invitations(id,company_id,code,email,role) VALUES(?,?,?,?,?)",
+       (inv_id, company_id, code, d.get("email",""), d.get("role","technician")))
+    conn.commit()
+    conn.close()
+    invite_url = f"{request.host_url}unirse/{code}"
+    return jsonify({"id":inv_id,"code":code,"url":invite_url})
+
+@app.route("/api/invitations")
+def get_invitations():
+    company_id = request.args.get("companyId","diprodi")
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM invitations WHERE company_id=? ORDER BY created_at DESC", (company_id,))
+    rows = rlist(cur.fetchall())
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/invitations/<code>/validate")
+def validate_invitation(code):
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM invitations WHERE code=? AND used=0", (code,))
+    inv = r2d(cur.fetchone())
+    conn.close()
+    if not inv:
+        return jsonify({"valid":False,"error":"Código inválido o ya utilizado"}), 400
+    return jsonify({"valid":True,"companyId":inv["company_id"],"role":inv["role"],"email":inv["email"]})
+
+@app.route("/unirse/<code>")
+def join_page(code):
+    """Public join page for employees"""
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Unirse a Servvoo</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{font-family:Arial,sans-serif;background:linear-gradient(135deg,#0C447C,#1D9E75);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}}
+.card{{background:white;border-radius:20px;padding:32px 28px;width:100%;max-width:400px;box-shadow:0 24px 64px rgba(0,0,0,.3);}}
+h1{{font-size:28px;font-weight:800;background:linear-gradient(135deg,#185FA5,#0F6E56);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px;}}
+p{{color:#666;font-size:13px;margin-bottom:20px;}}
+.field{{margin-bottom:12px;}}
+.field label{{display:block;font-size:12px;color:#666;margin-bottom:4px;font-weight:600;}}
+.field input{{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;}}
+.btn{{width:100%;background:linear-gradient(135deg,#185FA5,#0F6E56);color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}}
+.btn:disabled{{opacity:0.5;cursor:not-allowed;}}
+.error{{background:#FCEBEB;color:#C0392B;border-radius:8px;padding:10px;font-size:13px;margin-bottom:10px;}}
+.success{{background:#E1F5EE;color:#0F6E56;border-radius:8px;padding:16px;text-align:center;display:none;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Servvoo</h1>
+  <p>Te han invitado a unirte. Crea tu cuenta para continuar.</p>
+  <div id="error" class="error" style="display:none;"></div>
+  <div class="field"><label>Nombre completo</label><input id="name" type="text" placeholder="Ej: Juan Pérez"/></div>
+  <div class="field"><label>Teléfono</label><input id="phone" type="tel" placeholder="+504 9xxx-xxxx"/></div>
+  <div class="field"><label>Correo electrónico</label><input id="email" type="email" placeholder="correo@empresa.com"/></div>
+  <div class="field"><label>Contraseña</label><input id="password" type="password" placeholder="Mínimo 6 caracteres"/></div>
+  <div class="field"><label>Confirmar contraseña</label><input id="confirm" type="password" placeholder="Repetir contraseña"/></div>
+  <button class="btn" id="submitBtn" onclick="register()">✅ Crear mi cuenta</button>
+  <div class="success" id="success">
+    <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+    <strong>¡Cuenta creada!</strong><br/>
+    <p style="margin-top:8px;">Ya puedes entrar a <a href="https://servvoo.com" style="color:#185FA5;">servvoo.com</a> con tu correo y contraseña.</p>
+  </div>
+</div>
+<script>
+const code = "{code}";
+async function register(){{
+  const name = document.getElementById('name').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const confirm = document.getElementById('confirm').value;
+  const err = document.getElementById('error');
+  err.style.display='none';
+  if(!name||!email||!password){{err.textContent='Completa todos los campos';err.style.display='block';return;}}
+  if(password!==confirm){{err.textContent='Las contraseñas no coinciden';err.style.display='block';return;}}
+  if(password.length<6){{err.textContent='La contraseña debe tener al menos 6 caracteres';err.style.display='block';return;}}
+  document.getElementById('submitBtn').disabled=true;
+  document.getElementById('submitBtn').textContent='Creando cuenta...';
+  try{{
+    // Validate invite first
+    const val = await fetch(`/api/invitations/${{code}}/validate`).then(r=>r.json());
+    if(!val.valid){{err.textContent=val.error||'Código inválido';err.style.display='block';document.getElementById('submitBtn').disabled=false;return;}}
+    // Register user
+    const res = await fetch('/api/register',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{name,phone,email,password,role:val.role,companyId:val.companyId,inviteCode:code}})}});
+    const data = await res.json();
+    if(data.id){{
+      document.querySelector('.card').innerHTML = document.getElementById('success').outerHTML;
+      document.getElementById('success').style.display='block';
+    }}else{{
+      err.textContent=data.error||'Error al crear cuenta';err.style.display='block';
+      document.getElementById('submitBtn').disabled=false;
+      document.getElementById('submitBtn').textContent='✅ Crear mi cuenta';
+    }}
+  }}catch(e){{
+    err.textContent='Error de conexión';err.style.display='block';
+    document.getElementById('submitBtn').disabled=false;
+    document.getElementById('submitBtn').textContent='✅ Crear mi cuenta';
+  }}
+}}
+</script>
+</body>
+</html>"""
+    from flask import Response
+    return Response(html, mimetype='text/html')
+
 # ─── COMPANIES (MULTI-TENANT) ────────────────────────────────────────────────
 @app.route("/api/companies")
 def get_companies():
@@ -1552,7 +1678,9 @@ def migrate_db():
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS accepted_at TEXT DEFAULT ''",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS completed_at TEXT DEFAULT ''",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS video_link TEXT DEFAULT ''",
+            "CREATE TABLE IF NOT EXISTS invitations (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, code TEXT UNIQUE NOT NULL, email TEXT DEFAULT '', role TEXT DEFAULT 'technician', used INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY, company_id TEXT DEFAULT 'diprodi', title TEXT DEFAULT '', date TEXT NOT NULL, time TEXT DEFAULT '', color TEXT DEFAULT '#EF9F27', all_day INTEGER DEFAULT 0, notes TEXT DEFAULT '', blocks_booking INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
+            "CREATE TABLE IF NOT EXISTS invitations (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, code TEXT UNIQUE NOT NULL, email TEXT DEFAULT '', role TEXT DEFAULT 'technician', used INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
     ]
     for sql in migrations:
         try:
