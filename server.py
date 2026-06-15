@@ -1650,7 +1650,13 @@ def cancel_page(bid):
     </div></body></html>""", 200
 
 @app.route("/")
-def index(): 
+def landing():
+    response = send_from_directory("static","landing.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+@app.route("/app")
+def app_page():
     response = send_from_directory("static","index.html")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
