@@ -69,6 +69,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, client_name TEXT DEFAULT '', client_phone TEXT DEFAULT '', client_email TEXT DEFAULT '', equipo TEXT DEFAULT '', tipo_servicio TEXT DEFAULT 'mantenimiento', modalidad TEXT DEFAULT 'presencial', date TEXT NOT NULL, time TEXT NOT NULL, status TEXT DEFAULT 'pendiente', notas TEXT DEFAULT '', technician_id TEXT DEFAULT '', accepted_at TEXT DEFAULT '', completed_at TEXT DEFAULT '', video_link TEXT DEFAULT '', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, invoice_num TEXT NOT NULL, client_id TEXT, client_name TEXT DEFAULT '', client_rtn TEXT DEFAULT '', client_address TEXT DEFAULT '', items TEXT DEFAULT '[]', subtotal REAL DEFAULT 0, isv_rate REAL DEFAULT 15, isv REAL DEFAULT 0, total REAL DEFAULT 0, status TEXT DEFAULT 'pendiente', payment_method TEXT DEFAULT 'efectivo', cai TEXT DEFAULT '', notes TEXT DEFAULT '', technician_id TEXT DEFAULT '', trip_id TEXT DEFAULT '', company_id TEXT DEFAULT 'diprodi', created_at TEXT DEFAULT current_timestamp)",
             "CREATE TABLE IF NOT EXISTS invoice_sequence (id TEXT PRIMARY KEY, year INTEGER, month INTEGER, last_num INTEGER DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY, company_id TEXT DEFAULT 'diprodi', title TEXT DEFAULT '', date TEXT NOT NULL, time TEXT DEFAULT '', color TEXT DEFAULT '#EF9F27', all_day INTEGER DEFAULT 0, notes TEXT DEFAULT '', blocks_booking INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
         ]
         for t in tbls:
             try: cur.execute(t)
@@ -93,6 +94,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sales_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,monto REAL DEFAULT 0,descripcion TEXT DEFAULT '',cliente TEXT DEFAULT '',fecha TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS odometer_records(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,mes TEXT NOT NULL,km_inicio REAL DEFAULT 0,km_fin REAL DEFAULT 0,factura_monto REAL DEFAULT 0,km_laborales REAL DEFAULT 0,reembolso REAL DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,client_name TEXT DEFAULT '',client_phone TEXT DEFAULT '',client_email TEXT DEFAULT '',equipo TEXT DEFAULT '',tipo_servicio TEXT DEFAULT 'mantenimiento',modalidad TEXT DEFAULT 'presencial',date TEXT NOT NULL,time TEXT NOT NULL,status TEXT DEFAULT 'pendiente',notas TEXT DEFAULT '',technician_id TEXT DEFAULT '',accepted_at TEXT DEFAULT '',completed_at TEXT DEFAULT '',video_link TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE IF NOT EXISTS calendar_events(id TEXT PRIMARY KEY,company_id TEXT DEFAULT 'diprodi',title TEXT DEFAULT '',date TEXT NOT NULL,time TEXT DEFAULT '',color TEXT DEFAULT '#EF9F27',all_day INTEGER DEFAULT 0,notes TEXT DEFAULT '',blocks_booking INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY,invoice_num TEXT NOT NULL,client_id TEXT,client_name TEXT DEFAULT '',client_rtn TEXT DEFAULT '',client_address TEXT DEFAULT '',items TEXT DEFAULT '[]',subtotal REAL DEFAULT 0,isv_rate REAL DEFAULT 15,isv REAL DEFAULT 0,total REAL DEFAULT 0,status TEXT DEFAULT 'pendiente',payment_method TEXT DEFAULT 'efectivo',cai TEXT DEFAULT '',notes TEXT DEFAULT '',technician_id TEXT DEFAULT '',trip_id TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE IF NOT EXISTS invoice_sequence(id TEXT PRIMARY KEY,year INTEGER,month INTEGER,last_num INTEGER DEFAULT 0);
         """)
@@ -920,6 +922,218 @@ thead{{background:#0F6E56;color:white;}}thead th{{padding:10px;text-align:left;f
     from flask import Response
     return Response(html, mimetype="text/html")
 
+
+# ─── AI ASSISTANT ────────────────────────────────────────────────────────────
+import os as _os
+ANTHROPIC_KEY = _os.environ.get("ANTHROPIC_API_KEY","")
+
+@app.route("/api/ai/chat", methods=["POST"])
+def ai_chat():
+    """AI assistant for business insights"""
+    import json as _json
+    d = request.get_json()
+    if not ANTHROPIC_KEY:
+        return jsonify({"error": "API key no configurada"}), 400
+    
+    try:
+        import urllib.request as _req
+        # Get business context
+        conn = get_db()
+        company_id = d.get("companyId","diprodi")
+        cur = ex(conn, "SELECT COUNT(*) as c FROM trips WHERE company_id=?", (company_id,))
+        trip_count = int(r2d(cur.fetchone()).get("c") or 0)
+        cur = ex(conn, "SELECT COUNT(*) as c FROM clients WHERE company_id=?", (company_id,))
+        client_count = int(r2d(cur.fetchone()).get("c") or 0)
+        cur = ex(conn, "SELECT SUM(total) as t FROM invoices WHERE company_id=?", (company_id,))
+        revenue = float(r2d(cur.fetchone()).get("t") or 0)
+        cur = ex(conn, "SELECT name,rubro FROM companies WHERE id=?", (company_id,))
+        co = r2d(cur.fetchone()) or {}
+        conn.close()
+
+        system_prompt = f"""Eres el asistente de negocios de Servvoo para la empresa "{co.get('name','')}" 
+        en el rubro de {co.get('rubro','general')}.
+        
+        Datos actuales del negocio:
+        - Viajes realizados: {trip_count}
+        - Clientes activos: {client_count}  
+        - Ingresos totales: L.{revenue:,.2f}
+        - País: Honduras (usa Lempiras, días festivos de Honduras)
+        
+        Eres experto en negocios de Honduras y Centroamérica. Das consejos prácticos, 
+        específicos y accionables. Respondes en español. Eres conciso pero útil.
+        Cuando detectes oportunidades de negocio, días festivos próximos o tendencias,
+        proactivamente sugieres acciones."""
+
+        payload = _json.dumps({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 1000,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": d.get("message","")}]
+        }).encode()
+
+        req = _req.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01"
+            }
+        )
+        with _req.urlopen(req, timeout=30) as resp:
+            result = _json.loads(resp.read())
+            text = result["content"][0]["text"]
+            return jsonify({"response": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/ai/onboard", methods=["POST"])
+def ai_onboard():
+    """AI recommends modules based on business description"""
+    import json as _json
+    d = request.get_json()
+    if not ANTHROPIC_KEY:
+        # Fallback: rule-based recommendations
+        rubro = d.get("rubro","general")
+        recommendations = {
+            "veterinaria": ["viajes","inventario","reportes","facturacion","agenda","tracking","leasing"],
+            "medico": ["agenda","clientes","reportes","facturacion","calendario","expedientes"],
+            "bufete": ["clientes","agenda","facturacion","calendario","expedientes","horas"],
+            "construccion": ["viajes","inventario","tracking","facturacion","reportes"],
+            "general": ["viajes","clientes","agenda","facturacion","reportes"]
+        }
+        return jsonify({"modules": recommendations.get(rubro, recommendations["general"]), "reason": "Seleccionado por rubro"})
+    
+    try:
+        import urllib.request as _req
+        prompt = f"""Una empresa llamada "{d.get('name','')}" en el rubro "{d.get('rubro','')}" 
+        con esta descripción: "{d.get('description','')}"
+        
+        Recomienda qué módulos de Servvoo necesitan. Responde SOLO con JSON así:
+        {{"modules": ["viajes","inventario","agenda","facturacion","reportes","tracking","leasing","expedientes","calendario","ventas"], "reason": "explicación breve"}}
+        
+        Módulos disponibles: viajes, inventario, agenda, facturacion, reportes, tracking, leasing, expedientes, calendario, ventas
+        Solo incluye los relevantes para su rubro."""
+
+        payload = _json.dumps({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 500,
+            "messages": [{"role": "user", "content": prompt}]
+        }).encode()
+
+        req = _req.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01"}
+        )
+        with _req.urlopen(req, timeout=30) as resp:
+            result = _json.loads(resp.read())
+            text = result["content"][0]["text"]
+            # Parse JSON from response
+            import re
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                data = _json.loads(match.group())
+                return jsonify(data)
+            return jsonify({"modules":["viajes","agenda","facturacion","reportes"],"reason":text})
+    except Exception as e:
+        return jsonify({"modules":["viajes","agenda","facturacion","reportes"],"reason":"Módulos básicos recomendados"})
+
+# ─── CALENDAR ────────────────────────────────────────────────────────────────
+@app.route("/api/calendar/events")
+def get_events():
+    company_id = request.args.get("companyId","diprodi")
+    month = request.args.get("month", datetime.now().strftime("%Y-%m"))
+    conn = get_db()
+    # Get bookings as events
+    cur = ex(conn, "SELECT id,client_name,date,time,tipo_servicio,status,technician_id FROM bookings WHERE date LIKE ? ORDER BY date,time", (f"{month}%",))
+    bookings = rlist(cur.fetchall())
+    # Get manual events
+    try:
+        cur2 = ex(conn, "SELECT * FROM calendar_events WHERE company_id=? AND date LIKE ? ORDER BY date,time", (company_id, f"{month}%"))
+        manual = rlist(cur2.fetchall())
+    except:
+        manual = []
+    conn.close()
+    
+    events = []
+    for b in bookings:
+        events.append({"id":b["id"],"title":f"{b['client_name']} - {b['tipo_servicio']}",
+            "date":b["date"],"time":b["time"],"type":"booking","status":b["status"],"color":"#185FA5"})
+    for e in manual:
+        events.append({"id":e["id"],"title":e.get("title",""),"date":e.get("date",""),
+            "time":e.get("time",""),"type":"manual","color":e.get("color","#EF9F27"),
+            "allDay":e.get("all_day",False),"notes":e.get("notes","")})
+    return jsonify(events)
+
+@app.route("/api/calendar/events", methods=["POST"])
+def create_event():
+    d = request.get_json()
+    eid = "evt_" + uuid.uuid4().hex[:10]
+    company_id = d.get("companyId","diprodi")
+    conn = get_db()
+    ex(conn, "INSERT INTO calendar_events(id,company_id,title,date,time,color,all_day,notes,blocks_booking) VALUES(?,?,?,?,?,?,?,?,?)",
+       (eid,company_id,d.get("title",""),d.get("date",""),d.get("time",""),
+        d.get("color","#EF9F27"),1 if d.get("allDay") else 0,
+        d.get("notes",""),1 if d.get("blocksBooking") else 0))
+    conn.commit()
+    conn.close()
+    return jsonify({"id":eid,"ok":True})
+
+@app.route("/api/calendar/events/<eid>", methods=["DELETE"])
+def delete_event(eid):
+    conn = get_db()
+    ex(conn, "DELETE FROM calendar_events WHERE id=?", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok":True})
+
+# ─── CLIENT PROFILES ─────────────────────────────────────────────────────────
+@app.route("/api/clients/<cid>/history")
+def client_history(cid):
+    conn = get_db()
+    cur = ex(conn, "SELECT * FROM trips WHERE client_id=? ORDER BY date DESC", (cid,))
+    trips = [mt(r) for r in rlist(cur.fetchall())]
+    cur2 = ex(conn, "SELECT * FROM visit_reports WHERE client_id=? ORDER BY created_at DESC", (cid,))
+    reports = [mrep(r) for r in rlist(cur2.fetchall())]
+    cur3 = ex(conn, "SELECT * FROM invoices WHERE client_id=? ORDER BY created_at DESC", (cid,))
+    invoices = rlist(cur3.fetchall())
+    cur4 = ex(conn, "SELECT * FROM bookings WHERE client_name=(SELECT name FROM clients WHERE id=?) ORDER BY date DESC LIMIT 10", (cid,))
+    bookings = rlist(cur4.fetchall())
+    conn.close()
+    return jsonify({"trips":trips,"reports":reports,"invoices":invoices,"bookings":bookings})
+
+# ─── FINANCIAL SUMMARY ───────────────────────────────────────────────────────
+@app.route("/api/finance/summary")
+def finance_summary():
+    company_id = request.args.get("companyId","diprodi")
+    month = request.args.get("month", datetime.now().strftime("%Y-%m"))
+    conn = get_db()
+    # Revenue
+    cur = ex(conn, "SELECT SUM(total) as t,COUNT(*) as c FROM invoices WHERE company_id=? AND created_at LIKE ? AND status='pagada'", (company_id, f"{month}%"))
+    rev = r2d(cur.fetchone())
+    # Pending
+    cur2 = ex(conn, "SELECT SUM(total) as t FROM invoices WHERE company_id=? AND created_at LIKE ? AND status='pendiente'", (company_id, f"{month}%"))
+    pend = r2d(cur2.fetchone())
+    # Reimbursements (expenses)
+    cur3 = ex(conn, "SELECT SUM(reimbursement) as t FROM trips WHERE company_id=? AND date LIKE ?", (company_id, f"{month}%"))
+    reimb = r2d(cur3.fetchone())
+    # Top services
+    cur4 = ex(conn, "SELECT tipo_servicio,COUNT(*) as c FROM bookings WHERE created_at LIKE ? GROUP BY tipo_servicio ORDER BY c DESC LIMIT 5", (f"{month}%",))
+    top_services = rlist(cur4.fetchall())
+    # New clients
+    cur5 = ex(conn, "SELECT COUNT(*) as c FROM clients WHERE company_id=? AND created_at LIKE ?", (company_id, f"{month}%"))
+    new_clients = int(r2d(cur5.fetchone()).get("c") or 0)
+    conn.close()
+    income = float(rev.get("t") or 0)
+    expenses = float(reimb.get("t") or 0)
+    return jsonify({
+        "income": income, "invoiceCount": int(rev.get("c") or 0),
+        "pending": float(pend.get("t") or 0),
+        "expenses": expenses, "profit": income - expenses,
+        "topServices": top_services, "newClients": new_clients
+    })
+
 # ─── COMPANIES (MULTI-TENANT) ────────────────────────────────────────────────
 @app.route("/api/companies")
 def get_companies():
@@ -1338,6 +1552,7 @@ def migrate_db():
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS accepted_at TEXT DEFAULT ''",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS completed_at TEXT DEFAULT ''",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS video_link TEXT DEFAULT ''",
+            "CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY, company_id TEXT DEFAULT 'diprodi', title TEXT DEFAULT '', date TEXT NOT NULL, time TEXT DEFAULT '', color TEXT DEFAULT '#EF9F27', all_day INTEGER DEFAULT 0, notes TEXT DEFAULT '', blocks_booking INTEGER DEFAULT 0, created_at TEXT DEFAULT current_timestamp)",
     ]
     for sql in migrations:
         try:
