@@ -54,7 +54,7 @@ const COLORS={
 };
 const fmt=n=>new Intl.NumberFormat("es-HN",{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
 const uid=()=>Math.random().toString(36).slice(2,8);
-const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},remove:(k)=>{try{localStorage.removeItem(k)}catch{}}};
 
 // ─── UI HELPERS ───────────────────────────────────────────────────────────────
 function Avatar({initials,color="purple",size=36,radius="50%"}){
