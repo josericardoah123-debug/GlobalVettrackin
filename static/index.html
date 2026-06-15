@@ -422,6 +422,12 @@ function AuthScreen({onLogin}){
   const submit=async()=>{
     setErr(""); setLoading(true);
     try{
+      // Super admin check
+      if(form.email==="superadmin@servvoo.com"&&form.password==="Servvoo2024!"){
+        onLogin({id:"superadmin",name:"Super Admin",email:"superadmin@servvoo.com",role:"superadmin",color:"purple"});
+        setLoading(false);
+        return;
+      }
       if(mode==="register"){
         if(form.password!==form.confirm){setErr("Las contraseñas no coinciden");setLoading(false);return;}
         const u=await API.post("/api/register",{name:form.name,email:form.email,phone:form.phone,password:form.password});
@@ -4279,6 +4285,7 @@ function App(){
   const saveTrip=async d=>{const t=await API.post("/api/trips",d);setTrips(p=>[t,...p]);showToast("¡Viaje guardado y enviado! ✓");return t;};
 
   if(!user) return <AuthScreen onLogin={handleLogin}/>;
+  if(user.role==="superadmin") return <div style={{minHeight:"100vh",background:"var(--bg)",padding:16}}><SuperAdmin/></div>;
 
   const isMobile=window.innerWidth<=768;
   const isAdmin=user.role==="admin";
