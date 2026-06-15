@@ -437,8 +437,8 @@ function AuthScreen({onLogin}){
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0C447C 0%,#185FA5 50%,#1D9E75 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"white",borderRadius:20,padding:"32px 28px",width:"100%",maxWidth:400,boxShadow:"0 24px 64px rgba(0,0,0,.25)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:32,fontWeight:800,color:"#185FA5",letterSpacing:"-1px"}}>Lab<span style={{color:"#1a1d23"}}>Track</span></div>
-          <div style={{fontSize:13,color:"#6b7685",marginTop:4}}>Plataforma de operaciones de campo</div>
+          <div style={{fontSize:32,fontWeight:800,background:"linear-gradient(135deg,#185FA5,#0F6E56)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-1px"}}>Servvoo</div>
+          <div style={{fontSize:13,color:"#6b7685",marginTop:4}}>Plataforma de operaciones inteligente</div>
         </div>
 
         <div style={{display:"flex",background:"#f0f2f5",borderRadius:10,padding:4,marginBottom:20}}>
@@ -463,17 +463,13 @@ function AuthScreen({onLogin}){
 
         {err&&<div style={{background:"#FCEBEB",color:"#A32D2D",borderRadius:8,padding:"10px 14px",fontSize:13,marginTop:14,fontWeight:500}}>{err}</div>}
 
-        <button onClick={submit} disabled={loading} style={{width:"100%",background:"#185FA5",color:"white",border:"none",borderRadius:10,padding:14,fontSize:15,fontWeight:700,cursor:loading?"default":"pointer",opacity:loading?0.7:1,marginTop:20}}>
-          {loading?"Cargando...":mode==="login"?"Entrar":"Crear cuenta"}
+        <button onClick={submit} disabled={loading} style={{width:"100%",background:"linear-gradient(135deg,#185FA5,#0F6E56)",color:"white",border:"none",borderRadius:10,padding:14,fontSize:15,fontWeight:700,cursor:loading?"default":"pointer",opacity:loading?0.7:1,marginTop:20}}>
+          {loading?"Cargando...":mode==="login"?"Entrar →":"Crear cuenta"}
         </button>
 
-        {mode==="login"&&(
-          <div style={{marginTop:16,background:"#f0f2f5",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#6b7685"}}>
-            <div style={{fontWeight:600,marginBottom:4}}>Cuentas de prueba:</div>
-            <div>Admin: admin@servvoo.hn / admin123</div>
-            <div>Técnico: carlos@servvoo.hn / tech123</div>
-          </div>
-        )}
+        <div style={{marginTop:14,textAlign:"center",fontSize:11,color:"#aaa"}}>
+          Powered by Servvoo · servvoo.com
+        </div>
       </div>
     </div>
   );
@@ -4111,4 +4107,3 @@ if ("serviceWorker" in navigator) {
 </script>
 </body>
 </html>
- 
