@@ -4017,7 +4017,7 @@ function MantenimientoPreventivo({clients}){
                 <div style={{fontSize:10,color:"var(--text2)",marginTop:2}}>Próximo: {eq.nextMaint?.toISOString().slice(0,10)}</div>
                 {client?.phone&&(
                   <a href={`https://wa.me/?text=${encodeURIComponent("Recordatorio mantenimiento: "+eq.tipo+" "+eq.modelo+" S/N: "+eq.serie)}`} target="_blank" style={{display:"inline-block",marginTop:4,fontSize:10,background:"#25D366",color:"white",padding:"3px 8px",borderRadius:4,textDecoration:"none",fontWeight:600}}>📱 WA</a>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -4231,9 +4231,9 @@ ${q.notas?`<div style="margin-top:16px;padding:12px;background:#f8f8f8;border-ra
                   <div key={idx} style={{background:"var(--card)",borderRadius:8,padding:8,marginBottom:6,border:"1px solid var(--border)"}}>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 50px 80px 60px auto",gap:4,marginBottom:4,alignItems:"center"}}>
                       <input value={item.descripcion} onChange={e=>updateItem(idx,'descripcion',e.target.value)} placeholder="Descripción del producto o servicio" style={{padding:"6px 7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11}}/>
-                      <input type="number" value={item.qty} onChange={e=>updateItem(idx,'qty',e.target.value)} placeholder="Cant" style={{padding:"6px 4px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11,textAlign:"center"}}/>
-                      <input type="number" value={item.precio} onChange={e=>updateItem(idx,'precio',e.target.value)} placeholder="Precio" style={{padding:"6px 7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11}}/>
-                      <input type="number" value={item.descuento} onChange={e=>updateItem(idx,'descuento',e.target.value)} placeholder="Desc%" style={{padding:"6px 4px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11,textAlign:"center"}}/>
+                      <input type="number" value={+item.qty||1} onChange={e=>updateItem(idx,'qty',e.target.value)} placeholder="Cant" style={{padding:"6px 4px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11,textAlign:"center"}}/>
+                      <input type="number" value={+item.precio||0} onChange={e=>updateItem(idx,'precio',e.target.value)} placeholder="Precio" style={{padding:"6px 7px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11}}/>
+                      <input type="number" value={+item.descuento||0} onChange={e=>updateItem(idx,'descuento',e.target.value)} placeholder="Desc%" style={{padding:"6px 4px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:11,textAlign:"center"}}/>
                       <button onClick={()=>removeItem(idx)} style={{background:"#FCEBEB",color:"#E74C3C",border:"none",borderRadius:5,padding:"5px 7px",cursor:"pointer",fontSize:11}}>🗑️</button>
                     </div>
                     <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -4256,7 +4256,7 @@ ${q.notas?`<div style="margin-top:16px;padding:12px;background:#f8f8f8;border-ra
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
                 <div>
                   <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>Validez (días)</div>
-                  <input type="number" value={form.validezDias} onChange={e=>setForm(p=>({...p,validezDias:+e.target.value}))} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
+                  <input type="number" value={+form.validezDias||15} onChange={e=>setForm(p=>({...p,validezDias:+e.target.value}))} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}/>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:"var(--text2)",marginBottom:3}}>ISV</div>
