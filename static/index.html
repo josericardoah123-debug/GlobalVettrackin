@@ -2049,14 +2049,15 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
       watchRef.current=navigator.geolocation.watchPosition(
         pos=>{
           const newPt=[pos.coords.latitude,pos.coords.longitude];
-          // Only accept if accuracy is reasonable
-          if(pos.coords.accuracy>100) return;
+          // Strict accuracy filter — ignore readings worse than 50m
+          if(pos.coords.accuracy>50) return;
           setGpsPts(prev=>{
             if(prev.length===0) return [newPt];
             const dist=calcDist(prev[prev.length-1],newPt);
-            // Ignore spikes > 2km between consecutive points (GPS error)
-            if(dist>2) return prev;
-            if(dist>0.05){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
+            // Ignore spikes > 1km (GPS error/drift)
+            if(dist>1) return prev;
+            // Only count movement > 100m (0.1km) to avoid stationary drift
+            if(dist>0.1){setKm(k=>+(k+dist).toFixed(2));return [...prev,newPt];}
             return prev;
           });
           // Send live position to server every update
@@ -2079,7 +2080,7 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
           }).catch(()=>{});
         },
         err=>{setGpsError(err.code===1?"Permiso denegado":"Error GPS");},
-        {enableHighAccuracy:true,maximumAge:5000,timeout:15000}
+        {enableHighAccuracy:true,maximumAge:3000,timeout:15000}
       );
       // WakeLock to keep screen on
       if('wakeLock' in navigator){
@@ -2165,14 +2166,17 @@ function AppEmpleado({user,trips,onSaveTrip,inventory,clients,rate,mapsKey,repor
   };
 
   const end=async()=>{
+    // Stop GPS FIRST before any calculations to prevent drift
+    if(watchRef.current){navigator.geolocation.clearWatch(watchRef.current);watchRef.current=null;}
     setActive(false);
     clearInterval(destTimerRef.current);
     const now=new Date();
     const p2=d=>`${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
     const validDests=destinations.filter(d=>d.clientId||d.mandadoPlace);
-    const mainDest=validDests[validDests.length-1]; // last = main destination
+    const mainDest=validDests[validDests.length-1];
     const client=clients.find(c=>c.id===mainDest?.clientId);
-    const finalKm=+km.toFixed(1)||1;
+    // Use accumulated km — NO fallback to 1, use 0 if no movement detected
+    const finalKm=+km.toFixed(1);
     const firstPt=gpsPts[0]||null;
     const lastPt=gpsPts[gpsPts.length-1]||null;
     const tripStops=validDests.slice(0,-1).map((d,i)=>{
@@ -3794,6 +3798,177 @@ function InvitacionesPanel({companyId="diprodi"}){
   );
 }
 
+
+// ─── ESTADISTICAS DE VISITAS ─────────────────────────────────────────────────
+function EstadisticasVisitas({techs,trips,clients,reports}){
+  const [periodo,setPeriodo]=useState("mes");
+  const [techFilter,setTechFilter]=useState("todos");
+
+  const now=new Date();
+  const startOf={
+    semana:new Date(now.getFullYear(),now.getMonth(),now.getDate()-now.getDay()),
+    mes:new Date(now.getFullYear(),now.getMonth(),1),
+    año:new Date(now.getFullYear(),0,1),
+  };
+
+  const filteredTrips=trips.filter(t=>{
+    const d=new Date(t.date);
+    if(d<startOf[periodo]) return false;
+    if(techFilter!=="todos"&&t.technicianId!==techFilter) return false;
+    return true;
+  });
+
+  const filteredReports=reports.filter(r=>{
+    const d=new Date(r.createdAt||r.fecha||"");
+    if(d<startOf[periodo]) return false;
+    if(techFilter!=="todos"&&r.technicianId!==techFilter) return false;
+    return true;
+  });
+
+  const fmt=n=>`L.${(+n||0).toLocaleString("es-HN",{minimumFractionDigits:2})}`;
+
+  // Stats por técnico
+  const techStats=techs.map(tech=>{
+    const techTrips=filteredTrips.filter(t=>t.technicianId===tech.id);
+    const techReports=filteredReports.filter(r=>r.technicianId===tech.id);
+    const km=techTrips.reduce((s,t)=>s+(+t.km||0),0);
+    const reembolso=techTrips.reduce((s,t)=>s+(+t.reimbursement||0),0);
+    const clientsVisited=[...new Set(techTrips.map(t=>t.clientId).filter(Boolean))];
+    return {tech,trips:techTrips,reports:techReports,km,reembolso,clientCount:clientsVisited.length,clientIds:clientsVisited};
+  }).filter(s=>techFilter==="todos"||s.tech.id===techFilter);
+
+  // Stats por cliente
+  const clientStats=clients.map(cl=>{
+    const clTrips=filteredTrips.filter(t=>t.clientId===cl.id);
+    const clReports=filteredReports.filter(r=>r.clientId===cl.id);
+    const techsWhoVisited=[...new Set(clTrips.map(t=>t.technicianId))];
+    const lastVisit=clTrips.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    return {cl,trips:clTrips,reports:clReports,techCount:techsWhoVisited.length,lastVisit:lastVisit?.date,tripTypes:[...new Set(clTrips.map(t=>t.tripType).filter(Boolean))]};
+  }).filter(s=>s.trips.length>0).sort((a,b)=>b.trips.length-a.trips.length);
+
+  const totalKm=filteredTrips.reduce((s,t)=>s+(+t.km||0),0);
+  const totalReembolso=filteredTrips.reduce((s,t)=>s+(+t.reimbursement||0),0);
+  const periodoLabel={semana:"Esta semana",mes:"Este mes",año:"Este año"};
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontWeight:800,fontSize:20,color:"var(--text)",marginBottom:4}}>📊 Estadísticas de visitas</div>
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <div style={{display:"flex",background:"var(--surface)",borderRadius:8,padding:3,gap:3}}>
+          {["semana","mes","año"].map(p=>(
+            <button key={p} onClick={()=>setPeriodo(p)} style={{padding:"5px 12px",borderRadius:6,border:"none",background:periodo===p?"#185FA5":"transparent",color:periodo===p?"white":"var(--text2)",fontSize:12,fontWeight:periodo===p?700:400,cursor:"pointer"}}>
+              {p==="semana"?"Semana":p==="mes"?"Mes":"Año"}
+            </button>
+          ))}
+        </div>
+        <select value={techFilter} onChange={e=>setTechFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12}}>
+          <option value="todos">Todos los técnicos</option>
+          {techs.filter(t=>t.role!=="admin").map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </div>
+
+      {/* Global KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:20}}>
+        {[
+          ["🚗 Viajes",filteredTrips.length,"#185FA5","#E6F1FB"],
+          ["📄 Reportes",filteredReports.length,"#0F6E56","#E1F5EE"],
+          ["📍 Km totales",totalKm.toFixed(1)+"km","#EF9F27","#FFF3E0"],
+          ["💰 Reembolsos",fmt(totalReembolso),"#3C3489","#EEEDFE"],
+        ].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:10,color:c,fontWeight:700,marginBottom:3}}>{l}</div>
+            <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Por técnico */}
+      {techStats.length>0&&(
+        <div style={{marginBottom:20}}>
+          <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:10}}>👷 Por técnico — {periodoLabel[periodo]}</div>
+          {techStats.map(({tech,trips:tt,reports:rr,km,reembolso,clientCount})=>{
+            const initials=tech.name.split(" ").map(w=>w[0]).join("").slice(0,2);
+            const pct=totalKm>0?Math.round((km/totalKm)*100):0;
+            return(
+              <div key={tech.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <Avatar initials={initials} color={tech.color||"blue"} size={36}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{tech.name}</div>
+                    <div style={{fontSize:11,color:"var(--text2)"}}>{tech.role==="ventas"?"🤝 Ventas":"🔧 Técnico"}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:18,fontWeight:800,color:"#185FA5"}}>{tt.length}</div>
+                    <div style={{fontSize:10,color:"var(--text2)"}}>viajes</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,background:"var(--surface)",borderRadius:8,padding:8,marginBottom:8}}>
+                  {[["Reportes",rr.length,"📄"],["Clientes",clientCount,"🏥"],["Km",km.toFixed(1)+"km","📍"],["Reembolso",fmt(reembolso),"💰"]].map(([l,v,i])=>(
+                    <div key={l} style={{textAlign:"center"}}>
+                      <div style={{fontSize:9,color:"var(--text2)",marginBottom:2}}>{i} {l}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Km progress bar */}
+                {totalKm>0&&(
+                  <div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"var(--text2)",marginBottom:2}}>
+                      <span>% de km totales</span><span>{pct}%</span>
+                    </div>
+                    <div style={{background:"var(--border)",borderRadius:4,height:6,overflow:"hidden"}}>
+                      <div style={{width:pct+"%",height:"100%",background:"#185FA5",borderRadius:4}}/>
+                    </div>
+                  </div>
+                )}
+                {/* Trip types breakdown */}
+                {tt.length>0&&(
+                  <div style={{marginTop:8,display:"flex",gap:4,flexWrap:"wrap"}}>
+                    {Object.entries(tt.reduce((acc,t)=>{const type=t.tripType||"entrega";acc[type]=(acc[type]||0)+1;return acc;},{})).map(([type,count])=>(
+                      <span key={type} style={{fontSize:10,background:"#E6F1FB",color:"#185FA5",padding:"2px 7px",borderRadius:10,fontWeight:600}}>{type}: {count}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Por cliente */}
+      {clientStats.length>0&&(
+        <div>
+          <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:10}}>🏥 Clientes más visitados — {periodoLabel[periodo]}</div>
+          {clientStats.slice(0,10).map(({cl,trips:ct,reports:cr,lastVisit,tripTypes})=>(
+            <div key={cl.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{cl.name}</div>
+                <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{cl.city} {cl.phone?`· 📞 ${cl.phone}`:""}</div>
+                {lastVisit&&<div style={{fontSize:10,color:"var(--text2)",marginTop:1}}>Última visita: {lastVisit}</div>}
+                {tripTypes.length>0&&<div style={{display:"flex",gap:3,marginTop:3,flexWrap:"wrap"}}>{tripTypes.map(t=><span key={t} style={{fontSize:9,background:"#E1F5EE",color:"#0F6E56",padding:"1px 5px",borderRadius:8}}>{t}</span>)}</div>}
+              </div>
+              <div style={{textAlign:"right",marginLeft:10}}>
+                <div style={{fontSize:22,fontWeight:800,color:"#185FA5"}}>{ct.length}</div>
+                <div style={{fontSize:9,color:"var(--text2)"}}>visitas</div>
+                {cr.length>0&&<div style={{fontSize:10,color:"#0F6E56",marginTop:2}}>{cr.length} reportes</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {filteredTrips.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:"var(--text2)"}}>
+          <div style={{fontSize:40,marginBottom:8}}>📊</div>
+          <div>Sin viajes en este período</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SUPER ADMIN PANEL ───────────────────────────────────────────────────────
 function SuperAdmin(){
   const [companies,setCompanies]=useState([]);
@@ -4925,6 +5100,7 @@ function App(){
     {id:"tracking",l:"En vivo",i:"🗺️"},
     {id:"ventas",l:"Ventas",i:"🎯"},
     {id:"reportes",l:"Reportes",i:"📄"},
+    {id:"estadisticas",l:"Estadísticas",i:"📊"},
     {id:"inventario",l:"Inventario",i:"📦"},
     {id:"diprodi_inv",l:"Equipos",i:"🔬"},
     {id:"clientes",l:"Clientes",i:"🏥"},
