@@ -548,10 +548,15 @@ def save_odometer():
 @app.route("/api/diprodi/equipos")
 def get_equipos():
     estado = request.args.get("estado")
+    cliente = request.args.get("cliente","")
     conn = get_db()
     sql = "SELECT * FROM diprodi_equipos WHERE 1=1"
     params = []
     if estado: sql += " AND estado=?"; params.append(estado)
+    if cliente:
+        if is_pg(): sql += " AND LOWER(cliente) LIKE LOWER(?)"
+        else: sql += " AND LOWER(cliente) LIKE LOWER(?)"
+        params.append(f"%{cliente}%")
     sql += " ORDER BY num"
     cur = ex(conn, sql, params)
     rows = rlist(cur.fetchall()); conn.close()
