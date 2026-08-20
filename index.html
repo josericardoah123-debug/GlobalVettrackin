@@ -1706,7 +1706,7 @@ async function loadSyncCfg(){
   try{const tk=await window.storage.get('setting:syncToken'); if(tk&&tk.value) SYNC_TOKEN=tk.value;}catch(e){}
   try{const a=await window.storage.get('setting:syncAuto'); if(a&&a.value) SYNC_AUTO=a.value==='1';}catch(e){}
 }
-function getState(){ return {v:1,updated:Date.now(),crm,sales,plans,settings:{commRate,comCur},known_names:[...DATA.clinics.map(c=>c.clinica),...DATA.prospects.map(p=>p.clinica)],prospects_nuevos:prospectsNuevos}; }
+function getState(){ return {v:1,updated:Date.now(),crm,sales,plans,settings:{commRate,comCur},known_names:[...DATA.clinics.map(c=>c.clinica),...DATA.prospects.map(p=>p.clinica)],prospects_nuevos:[]}; }
 async function applyState(s){
   if(s.prospects_nuevos && s.prospects_nuevos.length){ prospectsNuevos=s.prospects_nuevos; saveProspectsNuevos(); mergeProspectsNuevos(prospectsNuevos,true); }
   if(!s) return;
