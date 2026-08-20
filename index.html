@@ -1,4 +1,4 @@
-<!doctype html>
+undefined<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -1782,15 +1782,39 @@ function initPass(){
 let prospectsNuevos = [];
 async function loadProspectsNuevos(){ try{const r=await window.storage.get('prospects:nuevos'); if(r&&r.value) prospectsNuevos=JSON.parse(r.value);}catch(e){} mergeProspectsNuevos(prospectsNuevos,false); }
 async function saveProspectsNuevos(){ try{await window.storage.set('prospects:nuevos',JSON.stringify(prospectsNuevos));}catch(e){} }
+function normClinicName(s){
+  return String(s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\b(clinica|veterinaria|veterinario|clinico|clinical|center|centro|hospital|agroveterinaria|agropecuaria|agrovet|consultorio|farmacia|animal|pet|pets|hogar|de|del|la|el|los|las|y|and|mi|mascota|mascotas)\b/g,' ')
+    .replace(/[^a-z0-9\s]/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+function isSameClinic(a,b){
+  const na=normClinicName(a), nb=normClinicName(b);
+  if(!na||!nb) return false;
+  if(na===nb) return true;
+  if(na.length>=4 && nb.length>=4 && (na.includes(nb)||nb.includes(na))) return true;
+  return false;
+}
+function cleanFalseProspects(){
+  const clientList = DATA.clinics.map(c=>c.clinica);
+  const before = DATA.prospects.length;
+  DATA.prospects = DATA.prospects.filter(p=>!clientList.some(cn=>isSameClinic(cn,p.clinica)));
+  const removed = before - DATA.prospects.length;
+  if(removed>0){
+    DATA.meta.n_prospectos=DATA.prospects.length;
+    DATA.meta.n_ciudades=new Set([...DATA.clinics.map(c=>c.ciudad),...DATA.prospects.map(p=>p.ciudad)]).size;
+  }
+  return removed;
+}
 function mergeProspectsNuevos(arr, notify){
   if(!arr||!arr.length) return;
-  const names=new Set(DATA.prospects.map(p=>p.clinica.toLowerCase()));
-  const clientNames=new Set(DATA.clinics.map(c=>c.clinica.toLowerCase()));
   let added=0;
   arr.forEach(p=>{
-    const key=(p.clinica||'').trim().toLowerCase(); if(!key) return;
-    if(names.has(key)||clientNames.has(key)) return;
-    DATA.prospects.push(p); names.add(key); added++;
+    const key=(p.clinica||'').trim(); if(!key) return;
+    const dupe = DATA.clinics.some(c=>isSameClinic(c.clinica,key)) || DATA.prospects.some(x=>isSameClinic(x.clinica,key));
+    if(dupe) return;
+    DATA.prospects.push(p); added++;
     if(!DATA.coords[p.ciudad]) DATA.coords[p.ciudad]=[p.lat,p.lng];
   });
   if(added){
@@ -1832,6 +1856,7 @@ $('#tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(t)
   await loadSyncCfg();
   recomputeIntel();
   await loadProspectsNuevos();
+  cleanFalseProspects();
   renderKPIs(); initClientes(); initOport(); initBodega(); initProspectos(); initComparador(); initComisiones(); initCobros(); initBackup(); initCloud(); initPass(); renderBoard();
   if($('#agfilter'))$('#agfilter').addEventListener('change',renderAgenda);
   renderPanel();  // Panel es la vista inicial (el mapa se crea al abrir su pestaña)
