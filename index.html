@@ -1706,8 +1706,9 @@ async function loadSyncCfg(){
   try{const tk=await window.storage.get('setting:syncToken'); if(tk&&tk.value) SYNC_TOKEN=tk.value;}catch(e){}
   try{const a=await window.storage.get('setting:syncAuto'); if(a&&a.value) SYNC_AUTO=a.value==='1';}catch(e){}
 }
-function getState(){ return {v:1,updated:Date.now(),crm,sales,plans,settings:{commRate,comCur}}; }
+function getState(){ return {v:1,updated:Date.now(),crm,sales,plans,settings:{commRate,comCur},known_names:[...DATA.clinics.map(c=>c.clinica),...DATA.prospects.map(p=>p.clinica)],prospects_nuevos:prospectsNuevos}; }
 async function applyState(s){
+  if(s.prospects_nuevos && s.prospects_nuevos.length){ prospectsNuevos=s.prospects_nuevos; saveProspectsNuevos(); mergeProspectsNuevos(prospectsNuevos,true); }
   if(!s) return;
   if(s.crm){ for(const k in crm) delete crm[k]; Object.assign(crm,s.crm); for(const k in crm){ try{await window.storage.set('crm:'+k,JSON.stringify(crm[k]));}catch(_){}} }
   if(s.sales){ sales=s.sales; saveSales(); }
@@ -1777,6 +1778,37 @@ function initPass(){
   });
 }
 
+/* ---------- PROSPECTOS NUEVOS (bot Google) ---------- */
+let prospectsNuevos = [];
+async function loadProspectsNuevos(){ try{const r=await window.storage.get('prospects:nuevos'); if(r&&r.value) prospectsNuevos=JSON.parse(r.value);}catch(e){} mergeProspectsNuevos(prospectsNuevos,false); }
+async function saveProspectsNuevos(){ try{await window.storage.set('prospects:nuevos',JSON.stringify(prospectsNuevos));}catch(e){} }
+function mergeProspectsNuevos(arr, notify){
+  if(!arr||!arr.length) return;
+  const names=new Set(DATA.prospects.map(p=>p.clinica.toLowerCase()));
+  const clientNames=new Set(DATA.clinics.map(c=>c.clinica.toLowerCase()));
+  let added=0;
+  arr.forEach(p=>{
+    const key=(p.clinica||'').trim().toLowerCase(); if(!key) return;
+    if(names.has(key)||clientNames.has(key)) return;
+    DATA.prospects.push(p); names.add(key); added++;
+    if(!DATA.coords[p.ciudad]) DATA.coords[p.ciudad]=[p.lat,p.lng];
+  });
+  if(added){
+    DATA.meta.n_prospectos=DATA.prospects.length;
+    DATA.meta.n_ciudades=new Set([...DATA.clinics.map(c=>c.ciudad),...DATA.prospects.map(p=>p.ciudad)]).size;
+    if(notify!==false) showNuevosBanner(added);
+    ['renderPanel','renderProspectos','initProspectos'].forEach(fn=>{try{window[fn]&&window[fn]();}catch(_){}});
+  }
+}
+function showNuevosBanner(n){
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:1200;background:#8e44ad;color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.4);cursor:pointer;font-weight:600';
+  el.textContent='🆕 '+n+' prospecto'+(n!==1?'s':'')+' nuevo'+(n!==1?'s':'')+' encontrado'+(n!==1?'s':'')+' — tocá para ver';
+  el.onclick=()=>{ activateTab('prospectos'); el.remove(); };
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),9000);
+}
+
 /* ---------- TABS ---------- */
 function activateTab(v){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.v===v));
@@ -1799,6 +1831,7 @@ $('#tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(t)
   await loadPlans();
   await loadSyncCfg();
   recomputeIntel();
+  await loadProspectsNuevos();
   renderKPIs(); initClientes(); initOport(); initBodega(); initProspectos(); initComparador(); initComisiones(); initCobros(); initBackup(); initCloud(); initPass(); renderBoard();
   if($('#agfilter'))$('#agfilter').addEventListener('change',renderAgenda);
   renderPanel();  // Panel es la vista inicial (el mapa se crea al abrir su pestaña)
