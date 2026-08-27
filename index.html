@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GlobalVet · Radar de Ventas</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0A0F1A">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%234C8DFF'/%3E%3Ccircle cx='50' cy='50' r='30' fill='none' stroke='white' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='8' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%234C8DFF'/%3E%3Ccircle cx='50' cy='50' r='30' fill='none' stroke='white' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='8' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -587,6 +591,7 @@ table.cmp-tbl.func td.us,table.cmp-tbl.func td.them{text-align:center;font-weigh
           <div class="com-set">
             <div class="setf"><label>Tu tasa</label><div class="rr"><input id="comRate" type="number" step="0.1" min="0" value="1.5"><span>%</span></div></div>
             <div class="setf"><label>Moneda</label><select id="comCur"><option value="L">L (Lempira)</option><option value="$">$ (USD)</option></select></div>
+          <div class="setf"><label>Meta del mes</label><input id="comGoal" type="number" min="0" step="1000" placeholder="0"></div>
           </div>
         </div>
         <div class="com-controls">
@@ -610,6 +615,11 @@ table.cmp-tbl.func td.us,table.cmp-tbl.func td.them{text-align:center;font-weigh
         <div class="com-stats" id="comStats"></div>
         <div class="chartcard"><div class="cc-h"><b id="comChartTitle">Comisión por mes</b><span>tu rendimiento</span></div><canvas id="comChart"></canvas></div>
         <div class="com-insight" id="comInsight"></div>
+        <div class="chartcard" id="goalCard" style="margin-top:14px;display:none">
+          <div class="cc-h"><b>Meta del mes</b><span id="goalPct"></span></div>
+          <div class="progbar" style="height:12px"><i id="goalBar" style="width:0%"></i></div>
+          <div class="note-soon" id="goalTxt" style="margin-top:8px"></div>
+        </div>
         <div class="cc-h" style="margin:20px 0 10px"><b>Ventas registradas</b><span id="comCount"></span></div>
         <div id="comList" class="com-list"></div>
       </div>
@@ -1032,22 +1042,36 @@ function pcard(c){
 }
 
 /* ---------- DRAWER ---------- */
-function directionsBtns(rec){
+function marcarContacto(nombre){
+  crm[nombre]=crm[nombre]||{};
+  crm[nombre].ultimoContacto=Date.now();
+  saveCRM(nombre);
+}
+function ultimoContactoTxt(nombre){
+  const t=(crm[nombre]||{}).ultimoContacto;
+  if(!t) return '';
+  const dias=Math.floor((Date.now()-t)/86400000);
+  const txt = dias<=0?'hoy':dias===1?'hace 1 día':'hace '+dias+' días';
+  return `<div class="note-soon" style="color:var(--brand2)">🕓 Último contacto: ${txt}</div>`;
+}
+function directionsBtns(rec, nm){
   if(rec.lat==null||rec.lng==null) return '';
   const wazeUrl='https://waze.com/ul?ll='+rec.lat+','+rec.lng+'&navigate=yes';
   const gmapsUrl='https://www.google.com/maps/dir/?api=1&destination='+rec.lat+','+rec.lng;
-  return `<a class="btn ghost" href="${wazeUrl}" target="_blank" style="text-decoration:none;color:#33CCFF">🚗 Waze</a>
-      <a class="btn ghost" href="${gmapsUrl}" target="_blank" style="text-decoration:none;color:#4C8DFF">📍 Google Maps</a>`;
+  const onc = nm ? `onclick="marcarContacto('${nm}')"` : '';
+  return `<a class="btn ghost" ${onc} href="${wazeUrl}" target="_blank" style="text-decoration:none;color:#33CCFF">🚗 Waze</a>
+      <a class="btn ghost" ${onc} href="${gmapsUrl}" target="_blank" style="text-decoration:none;color:#4C8DFF">📍 Google Maps</a>`;
 }
 function phoneActions(rec){
   const dg=digits(rec.phone);
-  const callWa = dg ? `<a class="btn ghost" href="tel:+${dg}" style="text-decoration:none">📞 Llamar</a>
-      <a class="btn ghost" href="https://wa.me/${dg}" target="_blank" style="text-decoration:none;color:#25D366">💬 WhatsApp</a>` : '';
-  const dirs = directionsBtns(rec);
-  if(!callWa && !dirs) return `<div class="note-soon">Sin teléfono todavía — el robot de Google lo completa al refrescar.</div>`;
+  const nm=esc(rec.clinica).replace(/'/g,"&#39;");
+  const callWa = dg ? `<a class="btn ghost" onclick="marcarContacto('${nm}')" href="tel:+${dg}" style="text-decoration:none">📞 Llamar</a>
+      <a class="btn ghost" onclick="marcarContacto('${nm}')" href="https://wa.me/${dg}" target="_blank" style="text-decoration:none;color:#25D366">💬 WhatsApp</a>` : '';
+  const dirs = directionsBtns(rec, nm);
+  if(!callWa && !dirs) return `<div class="note-soon">Sin teléfono todavía — el robot de Google lo completa al refrescar.</div>` + ultimoContactoTxt(rec.clinica);
   const pretty=esc(rec.phone||'');
   return `<div class="actions" style="margin-top:9px;flex-wrap:wrap">${callWa}${dirs}</div>
-    <div class="note-soon">${pretty}${rec.rating?' · ⭐ '+rec.rating+' (Google)':''}</div>`;
+    <div class="note-soon">${pretty}${rec.rating?' · ⭐ '+rec.rating+' (Google)':''}</div>` + ultimoContactoTxt(rec.clinica);
 }
 function openDrawer(name){
   const rec=findRec(name); if(!rec) return;
@@ -1059,7 +1083,19 @@ function openDrawer(name){
     bodyTop=`
       <div class="sec">
         <div class="lbl">Prospecto · aún no es cliente</div>
-        <div class="eq"><span class="cat">Google</span><span class="mod">${rec.rating?('⭐ '+rec.rating+' de calificación'):'Sin calificación'}</span></div>
+        <div class="eq"><span class="cat">Google</span><span class="mod">${rec.rating?('⭐ '+rec.rating+' de calificación'):'Sin calificación'}</span></div>${(function(){
+        const est = (crm[rec.clinica]||{}).verifEstado || 'sin_verificar';
+        const fecha = (crm[rec.clinica]||{}).verifFecha;
+        const colores = {activo:'#34D399', sin_verificar:'#FBBF24', cerrado:'#FB6E5B'};
+        return `<div class="sec"><div class="lbl">Estado de verificación</div>
+          <select id="f-verif" style="width:100%;background:var(--panel);border:1px solid var(--border2);color:${colores[est]};font-weight:600;border-radius:10px;padding:9px 11px;font-size:13.5px">
+            <option value="activo" ${est==='activo'?'selected':''}>🟢 Activo</option>
+            <option value="sin_verificar" ${est==='sin_verificar'?'selected':''}>🟡 Por verificar</option>
+            <option value="cerrado" ${est==='cerrado'?'selected':''}>🔴 Posiblemente cerrado</option>
+          </select>
+          ${fecha?'<div class="note-soon">Verificado: '+new Date(fecha).toLocaleDateString('es-HN')+'</div>':''}
+        </div>`;
+      })()}
         <div style="color:var(--muted);font-size:13px;margin-top:10px;line-height:1.5">Todavía no tiene equipo Globalvet — <b style="color:var(--violet)">todo el catálogo es oportunidad</b>. Empezá por hematología o química (los caballos de batalla) y crecé desde ahí.</div>
       </div>`;
   }else{
@@ -1120,6 +1156,7 @@ function openDrawer(name){
   const flash=()=>{saved.classList.add('show');clearTimeout(t);t=setTimeout(()=>saved.classList.remove('show'),1200);};
   d.querySelector('#f-estado').onchange=e=>{crm[name]=crm[name]||{};crm[name].estado=e.target.value;saveCRM(name);flash();renderBoard();};
   d.querySelector('#f-paso').oninput=e=>{crm[name]=crm[name]||{};crm[name].paso=e.target.value;saveCRM(name);flash();};
+  const fv=d.querySelector('#f-verif'); if(fv) fv.onchange=e=>{crm[name]=crm[name]||{};crm[name].verifEstado=e.target.value;crm[name].verifFecha=Date.now();saveCRM(name);flash();openDrawer(name);};
   d.querySelector('#f-fecha').oninput=e=>{crm[name]=crm[name]||{};crm[name].fecha=e.target.value;saveCRM(name);flash();if(typeof renderAgenda==='function')renderAgenda();};
   d.querySelector('#f-nota').oninput=e=>{crm[name]=crm[name]||{};crm[name].nota=e.target.value;saveCRM(name);flash();};
   const goCot=(offer)=>{const p=new URLSearchParams({cliente:rec.clinica,ciudad:rec.ciudad});if(offer)p.set('sugerido',offer);window.open(COTIZADOR_URL+'?'+p.toString(),'_blank');};
@@ -1466,10 +1503,11 @@ ${d.competencia_fuerte?`<h2>Consideración</h2><p style="font-size:13px">${esc(d
 }
 
 /* ---------- COMISIONES ---------- */
-let sales=[], commRate=1.5, comCur='L', comMode='mes', comYearSel=null, editingSaleId=null, comChart=null;
+let sales=[], commRate=1.5, comCur='L', comMode='mes', comYearSel=null, editingSaleId=null, comChart=null, commGoal=0;
 async function loadSales(){
   try{const r=await window.storage.get('sales:all'); if(r&&r.value) sales=JSON.parse(r.value);}catch(e){}
   try{const s=await window.storage.get('setting:commRate'); if(s&&s.value) commRate=parseFloat(s.value)||1.5;}catch(e){}
+  try{const g=await window.storage.get('setting:commGoal'); if(g&&g.value) commGoal=parseFloat(g.value)||0;}catch(e){}
   try{const c=await window.storage.get('setting:comCur'); if(c&&c.value) comCur=c.value;}catch(e){}
 }
 async function saveSales(){ try{await window.storage.set('sales:all',JSON.stringify(sales));}catch(e){} if(typeof scheduleCloudPush==='function') scheduleCloudPush(); }
@@ -1478,7 +1516,8 @@ function comm(monto){ return (monto||0)*(commRate/100); }
 const MES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 function initComisiones(){
-  $('#comRate').value=commRate; $('#comCur').value=comCur;
+  $('#comRate').value=commRate; $('#comCur').value=comCur; $('#comGoal').value=commGoal||'';
+  $('#comGoal').addEventListener('input',e=>{commGoal=parseFloat(e.target.value)||0; try{window.storage.set('setting:commGoal',String(commGoal));}catch(_){}; renderComisiones();});
   const cl=[...DATA.clinics.map(c=>c.clinica),...DATA.prospects.map(p=>p.clinica)].sort();
   $('#sfClientes').innerHTML=cl.map(n=>`<option value="${esc(n)}">`).join('');
   $('#sfEquipos').innerHTML=Object.values(EQUIP_KB).map(v=>`<option value="${esc(v.name)}">`).join('');
@@ -1576,6 +1615,16 @@ function renderComisiones(){
     r.querySelector('.del').onclick=e=>{e.stopPropagation();deleteSale(id);};
     r.querySelector('.in').onclick=()=>editSale(id);
   });
+  if(comMode==='mes' && commGoal>0){
+    const pct = Math.min(100, Math.round((sCom/commGoal)*100));
+    $('#goalCard').style.display='block';
+    $('#goalBar').style.width=pct+'%';
+    $('#goalBar').style.background = pct>=100?'var(--green)':pct>=60?'var(--brand)':'var(--amber)';
+    $('#goalPct').textContent=pct+'%';
+    $('#goalTxt').textContent = pct>=100 ? '¡Meta cumplida! 🎉 '+fmtMoney(sCom)+' de '+fmtMoney(commGoal) : fmtMoney(commGoal-sCom)+' te faltan para llegar a tu meta de '+fmtMoney(commGoal)+'.';
+  } else {
+    $('#goalCard').style.display='none';
+  }
 }
 
 /* ---------- COBROS / FINANCIAMIENTO ---------- */
@@ -1870,6 +1919,7 @@ $('#tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(t)
   renderPanel();  // Panel es la vista inicial (el mapa se crea al abrir su pestaña)
   if(SYNC_AUTO && SYNC_URL){ cloudPull(); }  // baja lo último al abrir
 })();
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
 </script>
 
 </body>
