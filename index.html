@@ -1756,11 +1756,15 @@ function initBackup(){
 }
 
 /* ---------- NUBE / SINCRONIZACIÓN (Google Apps Script) ---------- */
-let SYNC_URL='', SYNC_TOKEN='', SYNC_AUTO=false, pushTimer=null;
+const SYNC_URL_DEFAULT='https://script.google.com/macros/s/AKfycbzx_TjwFZ1eMcAK5nepgd6ooDGHBjTaOI6rt4I3nj8qYSvj0yrFm29J4XS1MwEKGqat/exec';
+const SYNC_TOKEN_DEFAULT='ZLP8W0LbU0uoIjY33UWMk9rZaE4KSEE5';
+let SYNC_URL=SYNC_URL_DEFAULT, SYNC_TOKEN=SYNC_TOKEN_DEFAULT, SYNC_AUTO=true, pushTimer=null;
 async function loadSyncCfg(){
   try{const u=await window.storage.get('setting:syncUrl'); if(u&&u.value) SYNC_URL=u.value;}catch(e){}
   try{const tk=await window.storage.get('setting:syncToken'); if(tk&&tk.value) SYNC_TOKEN=tk.value;}catch(e){}
   try{const a=await window.storage.get('setting:syncAuto'); if(a&&a.value) SYNC_AUTO=a.value==='1';}catch(e){}
+  if(!SYNC_URL) SYNC_URL=SYNC_URL_DEFAULT;
+  if(!SYNC_TOKEN) SYNC_TOKEN=SYNC_TOKEN_DEFAULT;
 }
 function getState(){ return {v:1,updated:Date.now(),crm,sales,plans,settings:{commRate,comCur},known_names:[...DATA.clinics.map(c=>c.clinica),...DATA.prospects.map(p=>p.clinica)],prospects_nuevos:[]}; }
 async function applyState(s){
@@ -1775,14 +1779,14 @@ async function applyState(s){
   ['renderPanel','renderBoard','renderComisiones','renderCobros','renderAgenda'].forEach(fn=>{try{window[fn]&&window[fn]();}catch(_){}});
 }
 function setSyncStatus(msg,cls){ const el=$('#syncStatus'); if(el){ el.textContent=msg; el.className='cm-status'+(cls?' '+cls:''); } }
-async function cloudPull(){
-  if(!SYNC_URL){ setSyncStatus('Primero pegá y guardá tu URL.','err'); return; }
-  setSyncStatus('Bajando de la nube…');
+async function cloudPull(silent){
+  if(!SYNC_URL){ if(!silent) setSyncStatus('Primero pegá y guardá tu URL.','err'); return; }
+  if(!silent) setSyncStatus('Bajando de la nube…');
   try{ const url=SYNC_URL+(SYNC_TOKEN?('?token='+encodeURIComponent(SYNC_TOKEN)):''); const res=await fetch(url,{method:'GET'}); const data=await res.json();
-    if(data&&data.ok===false){ setSyncStatus('Token incorrecto o sin permiso.','err'); return; }
-    if(data&&data.state){ await applyState(data.state); setSyncStatus('✓ Datos bajados de la nube ('+new Date().toLocaleTimeString('es-HN')+').','ok'); }
-    else setSyncStatus('La nube está vacía todavía. Subí tus datos primero.','');
-  }catch(e){ setSyncStatus('No pude conectar. Revisá la URL y que el Web App esté público.','err'); }
+    if(data&&data.ok===false){ if(!silent) setSyncStatus('Token incorrecto o sin permiso.','err'); return; }
+    if(data&&data.state){ await applyState(data.state); if(!silent) setSyncStatus('✓ Datos bajados de la nube ('+new Date().toLocaleTimeString('es-HN')+').','ok'); }
+    else if(!silent) setSyncStatus('La nube está vacía todavía. Subí tus datos primero.','');
+  }catch(e){ if(!silent) setSyncStatus('No pude conectar. Revisá la URL y que el Web App esté público.','err'); }
 }
 async function cloudPush(silent){
   if(!SYNC_URL){ if(!silent) setSyncStatus('Primero pegá y guardá tu URL.','err'); return; }
@@ -1917,9 +1921,40 @@ $('#tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(t)
   renderKPIs(); initClientes(); initOport(); initBodega(); initProspectos(); initComparador(); initComisiones(); initCobros(); initBackup(); initCloud(); initPass(); renderBoard();
   if($('#agfilter'))$('#agfilter').addEventListener('change',renderAgenda);
   renderPanel();  // Panel es la vista inicial (el mapa se crea al abrir su pestaña)
-  if(SYNC_AUTO && SYNC_URL){ cloudPull(); }  // baja lo último al abrir
+  // === Sincronización automática (sin tocar nada) ===
+  if(SYNC_URL){ cloudPull(true); }                      // baja lo último al abrir
+  setInterval(()=>{ if(SYNC_URL && navigator.onLine) cloudPull(true); }, 180000);  // cada 3 min
+  document.addEventListener('visibilitychange',()=>{     // al volver a la app
+    if(!document.hidden && SYNC_URL && navigator.onLine) cloudPull(true);
+  });
+  window.addEventListener('online',()=>{ if(SYNC_URL) cloudPull(true); });  // al recuperar señal
 })();
-if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // buscar actualizaciones al abrir y cada 10 min
+      reg.update();
+      setInterval(()=>reg.update(), 600000);
+      reg.addEventListener('updatefound',()=>{
+        const nuevo = reg.installing;
+        if(!nuevo) return;
+        nuevo.addEventListener('statechange',()=>{
+          if(nuevo.state==='installed' && navigator.serviceWorker.controller){
+            // hay versión nueva lista: avisar y recargar
+            const b=document.createElement('div');
+            b.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:3000;background:var(--brand);color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.4);cursor:pointer';
+            b.textContent='✨ Nueva versión lista — tocá para actualizar';
+            b.onclick=()=>{ nuevo.postMessage({type:'SKIP_WAITING'}); location.reload(); };
+            document.body.appendChild(b);
+            setTimeout(()=>{ try{ nuevo.postMessage({type:'SKIP_WAITING'}); location.reload(); }catch(_){} }, 5000);
+          }
+        });
+      });
+    }).catch(()=>{});
+    let recargando=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(recargando) return; recargando=true; location.reload(); });
+  });
+}
 </script>
 
 </body>
